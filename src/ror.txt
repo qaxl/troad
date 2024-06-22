@@ -1,0 +1,13 @@
+{
+    "version": {
+        "name": "Troad 1.8.9",
+        "protocol": 47
+    },
+    "players": {
+        "max": 100,
+        "online": 5
+    },
+    "description": {
+        "text": "Hello world"
+    }
+}
