@@ -1,6 +1,5 @@
 use std::{
-    io,
-    sync::{Arc, RwLock},
+    io, net::SocketAddr, sync::{Arc, RwLock}
 };
 
 use bevy_ecs::{component::Component, entity::Entity, world::World};
@@ -16,7 +15,7 @@ use crate::{
             PluginMessage, ServerDifficulty, SpawnPosition, Status, StringPck, TimeUpdate,
             VersionInfo,
         },
-        serde::{deserialize_from_slice, serialize_to_vec, serialize_with_size, v32, VarInt},
+        serde::{deserialize_from_slice, serialize_to_vec, serialize_with_size, v32, vsize, VarInt},
     },
     server::{PeersMap, TcpProtocolExt},
 };
@@ -72,9 +71,10 @@ pub struct EventContext<'a> {
 
     pub world: Arc<RwLock<World>>,
     pub entity: &'a mut Option<Entity>,
+    pub addr: &'a SocketAddr,
 }
 
-#[derive(Component)]
+#[derive(Component, Clone)]
 pub struct PlayerName {
     name: String,
     uuid: Uuid,
@@ -140,7 +140,7 @@ pub async fn handle_event<'a>(context: EventContext<'a>) -> Result<(), io::Error
                     let entity_id = {
                         let mut entity_world = context.world.write().unwrap();
                         let entity_world = entity_world.spawn(PlayerName {
-                            name: info.name,
+                            name: format!("{}_{}", info.name, rand::random::<u16>()),
                             uuid,
                         });
                         entity_world.id()
@@ -197,25 +197,34 @@ pub async fn handle_event<'a>(context: EventContext<'a>) -> Result<(), io::Error
                     let s = context.stream;
                     let mut data = vec![0; total as usize];
                     #[derive(Serialize, Default)]
-                    pub struct Chunk {
+                    pub struct ChunkBulk {
+                        skylight_sent: bool,
+                        chunk_col_count: vsize,
+                        metas: Vec<ChunkMeta>,
+                        datas: Vec<Vec<u8>>,
+                    }
+
+                    #[derive(Serialize)]
+                    pub struct ChunkMeta {
                         x: i32,
-                        y: i32,
-                        ground_up: u8,
-                        bit_field: u16,
-                        size: VarInt<i32>,
-                        data: Vec<u8>,
+                        z: i32,
+                        prim_bit_mask: u16,
                     }
 
                     let y = 63;
 
-                    for x in 0..15 {
-                        for z in 0..15 {
-                            let i = y << 8 | z << 4 | x;
-                            let t = 35; // 35;
-                            let d = x + z;
-
-                            data[2 * i] = ((t << 4) & 0xFF) as u8;
-                            data[2 * i + 1] = (t >> 4) as u8;
+                    for y in 0..=63 {
+                        for x in 0..=15 {
+                            for z in 0..=15 {
+                                let i = y << 8 | z << 4 | x;
+                                let t = 35; // 35;
+                                let d = x + z;
+                                
+                                // data[2 * i] = (t & 0xFF) as u8;
+                                // data[2 * i + 1] = (t >> 8) as u8;
+                                data[2 * i] = ((t << 4) | d) as u8;
+                                data[2 * i + 1] = (t >> 4) as u8;
+                            }
                         }
                     }
 
@@ -227,22 +236,20 @@ pub async fn handle_event<'a>(context: EventContext<'a>) -> Result<(), io::Error
                         data[(n * 8192 + n * 2048 + i) as usize] = 0xFF;
                     }
 
+
+                    let mut bulk = ChunkBulk { skylight_sent: true, chunk_col_count: VarInt::<usize>(9), metas: Vec::new(), datas: Vec::new()  };
                     for x in -1..=1 {
-                        for y in -1..=1 {
-                            s.send(
-                                0x21,
-                                &Chunk {
-                                    bit_field: 0b1111111111111111,
-                                    size: VarInt::<i32>(total as i32),
-                                    data: data.clone(),
-                                    x,
-                                    y,
-                                    ground_up: 1,
-                                },
-                            )
-                            .await?;
+                        for z in -1..=1 {
+                            bulk.metas.push(ChunkMeta { x, z, prim_bit_mask: u16::MAX });
+                            bulk.datas.push(data.clone());
                         }
                     }
+
+                    s.send(
+                        0x26,
+                        &bulk,
+                    )
+                    .await?;
 
                     s.send(
                         0x39,
@@ -253,6 +260,111 @@ pub async fn handle_event<'a>(context: EventContext<'a>) -> Result<(), io::Error
                         },
                     )
                     .await?;
+
+                    let mut thyself = None;
+                    let players = {
+                        let mut vec = Vec::new();
+                        let world = context.world.read().unwrap();
+                        for ent in world.iter_entities() {
+                            let player_info = ent.get::<PlayerName>().unwrap();
+                            if ent.id() == context.entity.unwrap() {
+                                thyself = Some(player_info.clone());
+                            }
+
+                            vec.push((ent.id(), player_info.clone()));
+                        }
+                        vec
+                    };
+
+                    #[derive(Serialize)]
+                    pub struct PlayerListItem {
+                        id: v32,
+                        action: v32,
+                        num_players: vsize,
+                        players: Vec<Player>,
+                    }
+
+                    #[derive(Serialize, Clone)]
+                    pub struct Player {
+                        uuid: Uuid,
+
+                        // for 0, add -> player
+                        name: String,
+                        num_of_props: vsize,
+                        properties: Vec<Property>,
+                        game_mode: v32,
+                        ping: v32,
+                        has_display_name: bool,
+                        display_name: Option<String>,
+                    }
+
+                    #[derive(Serialize, Clone)]
+                    pub struct Property {
+                        name: String,
+                        value: String,
+                        is_signed: bool,
+                        signature: String,
+                    }
+
+                    let mut pli = PlayerListItem { id: VarInt::<i32>(0x38), action: VarInt::<i32>(0), num_players: VarInt::<usize>(players.len()), players: Vec::new() };
+                    
+                    for player in players {
+                        pli.players.push(Player { uuid: player.1.uuid, name: player.1.name, num_of_props: VarInt::<usize>(0), properties: Vec::new(), game_mode: VarInt::<i32>(0), ping: VarInt::<i32>(0), has_display_name: false, display_name: None });
+                    }
+                    
+                    let packet = serialize_with_size(&pli)?;
+                    let packet: Arc<[u8]> = (&packet[..]).into();
+                    println!("{:02x?}", packet);
+                    
+                    s.write_all(&packet.clone()).await.unwrap();
+                    let thyself = thyself.unwrap();
+
+                    pli.num_players = VarInt::<usize>(1);
+                    let mut ply = None;
+                    for p in pli.players {
+                        if p.uuid == thyself.uuid {
+                            ply = Some(p.clone());
+                        }
+                    }
+                    let ply = ply.unwrap();
+                    pli.players = vec![ply];
+
+                    let packet = serialize_with_size(&pli)?;
+                    let packet: Arc<[u8]> = (&packet[..]).into();
+
+                    for peer in context.peers.iter() {
+                        if peer.key() != context.addr {
+
+                            peer.send(packet.clone()).await.unwrap();
+                        }
+                    }
+
+                    #[derive(Serialize, Debug)]
+                    pub struct SpawnPlayer {
+                        id: v32,
+                        eid: v32,
+                        uuid: Uuid,
+                        x: i32,
+                        y: i32,
+                        z: i32,
+                        yaw: u8,
+                        pitch: u8,
+                        current_item: u16,
+                        metadata: Vec<u8>,
+                    }
+
+                    
+                    // First send the new player to old clients
+                    let spawn = SpawnPlayer { id: VarInt::<i32>(0x0C), eid: VarInt::<i32>(context.entity.unwrap().index() as i32), uuid: thyself.uuid, x: 0, y: 65 * 32, z: 0, yaw: 0, pitch: 0, current_item: 0, metadata: vec![6 | (3 << 5), 0, 0, 0xA0, 0x41, 0x7F] };
+                    println!("{:?}", spawn);
+                    let spawn = serialize_with_size(&spawn)?;
+                    let spawn: Arc<[u8]> = spawn.into();
+                    println!("{:02x?}", spawn);
+                    for peer in context.peers.iter() {
+                        if peer.key() != context.addr {
+                            peer.send(spawn.clone()).await.unwrap();
+                        }
+                    }
 
                     // s.write_all(&chunks[..]).await?;
 
@@ -306,7 +418,7 @@ pub async fn handle_event<'a>(context: EventContext<'a>) -> Result<(), io::Error
                             position: u8,
                         }
 
-                        let message = serialize_with_size(&ChatMessage { id: VarInt::<i32>(0x02), json: format!("{{\"text\": \"<{}> \", \"bold\": true, \"extra\": [{{\"text\": \"(UUID: {}) {}\", \"bold\": false}}]}}", player.name, player.uuid.to_string(), message), position: 0 }).unwrap();
+                        let message = serialize_with_size(&ChatMessage { id: VarInt::<i32>(0x02), json: format!("{{\"text\": \"<{}> \", \"bold\": true, \"extra\": [{{\"text\": \"{}\", \"bold\": false}}]}}", player.name, message), position: 0 }).unwrap();
                         Into::<Arc<[u8]>>::into(&message[..])
                     };
                     for peer in context.peers.iter() {

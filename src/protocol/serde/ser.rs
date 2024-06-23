@@ -116,7 +116,7 @@ impl<'a> ser::Serializer for &'a mut Serializer {
     }
 
     fn serialize_none(self) -> Result<Self::Ok> {
-        todo!()
+        Ok(())
     }
 
     fn serialize_some<T>(self, value: &T) -> Result<Self::Ok>

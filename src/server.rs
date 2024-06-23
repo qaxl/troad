@@ -156,6 +156,7 @@ async fn handle_incoming_data(
             header,
             world: world.clone(),
             entity,
+            addr: &addr
         })
         .await?;
         read += size + *header.len as usize - 1; // FIXME: this doesn't work if the packet id is too large.
