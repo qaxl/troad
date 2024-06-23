@@ -5,7 +5,7 @@ use std::{
     time::Instant,
 };
 
-use bevy_ecs::world::World;
+use bevy_ecs::{entity::Entity, world::World};
 use dashmap::DashMap;
 use serde::Serialize;
 use tokio::{
@@ -104,6 +104,7 @@ impl Server {
         // TODO: to improve perf, this could be stored in a stack...?
         let mut buf = vec![0; 1024 * 256];
         let mut state = State::Handshaking;
+        let mut entity = None;
 
         loop {
             tokio::select! {
@@ -115,10 +116,10 @@ impl Server {
 
                     // println!("Received {size} from {addr}: {:02x?}", &buf[..size]);
                     let start = Instant::now();
-                    handle_incoming_data(&peers, addr, &mut stream, &mut state, &buf[..size], world.clone()).await?;
+                    handle_incoming_data(&peers, addr, &mut stream, &mut state, &buf[..size], world.clone(), &mut entity).await?;
                     let end = Instant::now();
 
-                    if (end - start).as_micros() > 2 {
+                    if (end - start).as_micros() > 300 {
                         println!("Took {}ms/{}μs/{}ns!", (end - start).as_millis(), (end - start).as_micros(), (end - start).as_nanos());
                     }
                 }
@@ -141,6 +142,7 @@ async fn handle_incoming_data(
     state: &mut State,
     buf: &[u8],
     world: Arc<RwLock<World>>,
+    entity: &mut Option<Entity>,
 ) -> Result<(), io::Error> {
     let mut read = 0;
     while read < buf.len() {
@@ -153,6 +155,7 @@ async fn handle_incoming_data(
             buf: &buf[read + size..],
             header,
             world: world.clone(),
+            entity,
         })
         .await?;
         read += size + *header.len as usize - 1; // FIXME: this doesn't work if the packet id is too large.
@@ -209,9 +212,10 @@ impl TcpProtocolExt for TcpStream {
             p: &'a T,
         }
 
-        let d = serialize_with_size(&Data { id: VarInt::<i32>(id), p })?;
-        println!("{d:02x?}");
-
-        self.write_all(&d).await
+        self.write_all(&serialize_with_size(&Data {
+            id: VarInt::<i32>(id),
+            p,
+        })?)
+        .await
     }
 }

@@ -3,7 +3,7 @@ use std::{
     sync::{Arc, RwLock},
 };
 
-use bevy_ecs::{component::Component, world::World};
+use bevy_ecs::{component::Component, entity::Entity, world::World};
 use serde::{Deserialize, Serialize};
 use tokio::{io::AsyncWriteExt, net::TcpStream};
 use uuid::Uuid;
@@ -16,7 +16,7 @@ use crate::{
             PluginMessage, ServerDifficulty, SpawnPosition, Status, StringPck, TimeUpdate,
             VersionInfo,
         },
-        serde::{deserialize_from_slice, serialize_to_vec, VarInt},
+        serde::{deserialize_from_slice, serialize_to_vec, serialize_with_size, v32, VarInt},
     },
     server::{PeersMap, TcpProtocolExt},
 };
@@ -71,6 +71,7 @@ pub struct EventContext<'a> {
     pub header: Header,
 
     pub world: Arc<RwLock<World>>,
+    pub entity: &'a mut Option<Entity>,
 }
 
 #[derive(Component)]
@@ -80,7 +81,7 @@ pub struct PlayerName {
 }
 
 pub async fn handle_event<'a>(context: EventContext<'a>) -> Result<(), io::Error> {
-    println!("{:02x}", *context.header.id);
+    // println!("{:02x}", *context.header.id);
 
     match context.state {
         State::Handshaking => match *context.header.id {
@@ -142,8 +143,11 @@ pub async fn handle_event<'a>(context: EventContext<'a>) -> Result<(), io::Error
                             name: info.name,
                             uuid,
                         });
-                        entity_world.id().index() as i32
+                        entity_world.id()
                     };
+
+                    *context.entity = Some(entity_id);
+                    let entity_id = entity_id.index() as i32;
 
                     context
                         .stream
@@ -187,6 +191,91 @@ pub async fn handle_event<'a>(context: EventContext<'a>) -> Result<(), io::Error
                         )
                         .await?;
 
+                    let n = 16;
+                    let total = n * 8192 + n * 2048 + n * 2048 + 256;
+
+                    let s = context.stream;
+                    let mut data = vec![0; total as usize];
+                    #[derive(Serialize, Default)]
+                    pub struct Chunk {
+                        x: i32,
+                        y: i32,
+                        ground_up: u8,
+                        bit_field: u16,
+                        size: VarInt<i32>,
+                        data: Vec<u8>,
+                    }
+
+                    let y = 63;
+
+                    for x in 0..15 {
+                        for z in 0..15 {
+                            let i = y << 8 | z << 4 | x;
+                            let t = 35; // 35;
+                            let d = x + z;
+
+                            data[2 * i] = ((t << 4) & 0xFF) as u8;
+                            data[2 * i + 1] = (t >> 4) as u8;
+                        }
+                    }
+
+                    for i in 0..n * 2048 {
+                        data[(n * 8192 + i) as usize] = 0xFF;
+                    }
+
+                    for i in 0..n * 2048 {
+                        data[(n * 8192 + n * 2048 + i) as usize] = 0xFF;
+                    }
+
+                    for x in -1..=1 {
+                        for y in -1..=1 {
+                            s.send(
+                                0x21,
+                                &Chunk {
+                                    bit_field: 0b1111111111111111,
+                                    size: VarInt::<i32>(total as i32),
+                                    data: data.clone(),
+                                    x,
+                                    y,
+                                    ground_up: 1,
+                                },
+                            )
+                            .await?;
+                        }
+                    }
+
+                    s.send(
+                        0x39,
+                        &PlayerAbilities {
+                            flags: 0x08 | 0x02,
+                            flying_speed: 0.5,
+                            fov_modifier: 1.0,
+                        },
+                    )
+                    .await?;
+
+                    // s.write_all(&chunks[..]).await?;
+
+                    // #[derive(Serialize)]
+                    // pub struct SpawnPlayer {
+                    //     entity_id: VarInt<i32>,
+                    //     uuid: Uuid,
+                    //     x: i32,
+                    //     y: i32,
+                    //     z: i32,
+                    //     yaw: u8,
+                    //     pitch: u8,
+                    //     current_item: i16,
+                    //     // TODO:
+                    //     metadata: u8,
+                    // }
+
+                    // let chunks = serialize_to_vec(&SpawnPlayer { entity_id: VarInt::<i32>(12), uuid: Uuid::parse_str("59e0bff5-3cdd-475a-a360-3ccf860b158b").unwrap(), x: 0, y: 65, z: 0, yaw: 0, pitch: 50, current_item: 0, metadata: 0xFF })?;
+                    // let chunks = serialize_to_vec(&Packet { header: Header { len: VarInt::<i32>(chunks.len() as i32 + 1), id: VarInt::<i32>(0x0C) }, packet: chunks })?;
+
+                    // s.write_all(&chunks[..]).await?;
+
+                    // context.stream.write_all(&CHUNK_DATA).await?;
                 }
 
                 _ => (),
@@ -200,6 +289,31 @@ pub async fn handle_event<'a>(context: EventContext<'a>) -> Result<(), io::Error
 
         State::Play => {
             match *context.header.id {
+                0x00 => {}
+
+                0x01 => {
+                    let packet = {
+                        let world = context.world.read().unwrap();
+                        let player = world.get::<PlayerName>(context.entity.unwrap()).unwrap();
+
+                        let message = deserialize_from_slice::<String>(context.buf)?.1;
+                        println!("User {} sent a message {}", player.name, message);
+
+                        #[derive(Serialize)]
+                        pub struct ChatMessage {
+                            id: v32,
+                            json: String,
+                            position: u8,
+                        }
+
+                        let message = serialize_with_size(&ChatMessage { id: VarInt::<i32>(0x02), json: format!("{{\"text\": \"<{}> \", \"bold\": true, \"extra\": [{{\"text\": \"(UUID: {}) {}\", \"bold\": false}}]}}", player.name, player.uuid.to_string(), message), position: 0 }).unwrap();
+                        Into::<Arc<[u8]>>::into(&message[..])
+                    };
+                    for peer in context.peers.iter() {
+                        peer.send(packet.clone()).await.unwrap();
+                    }
+                }
+
                 0x15 => {
                     let settings = deserialize_from_slice::<ClientSettings>(context.buf)?;
                     println!("{settings:?}");
@@ -224,6 +338,11 @@ pub async fn handle_event<'a>(context: EventContext<'a>) -> Result<(), io::Error
 
                 0x3 => {
                     // player wants player updates?
+                    // whatever we respond w keep alive bro
+                    context
+                        .stream
+                        .send(0x0, &VarInt::<u32>(rand::random()))
+                        .await?;
                 }
 
                 0x05 => {
