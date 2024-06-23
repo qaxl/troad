@@ -1,5 +1,7 @@
 use std::{
-    io, net::SocketAddr, sync::{Arc, RwLock}
+    io,
+    net::SocketAddr,
+    sync::{Arc, RwLock},
 };
 
 use bevy_ecs::{component::Component, entity::Entity, world::World};
@@ -15,7 +17,9 @@ use crate::{
             PluginMessage, ServerDifficulty, SpawnPosition, Status, StringPck, TimeUpdate,
             VersionInfo,
         },
-        serde::{deserialize_from_slice, serialize_to_vec, serialize_with_size, v32, vsize, VarInt},
+        serde::{
+            deserialize_from_slice, serialize_to_vec, serialize_with_size, v32, vsize, VarInt,
+        },
     },
     server::{PeersMap, TcpProtocolExt},
 };
@@ -40,6 +44,8 @@ pub const JOIN_GAME: i32 = 0x01;
 pub const LOGIN_SUCCESS: i32 = 0x2;
 pub const PLAYER_POSITION_AND_LOOK: i32 = 0x08;
 pub const PLUGIN_MESSAGE_CLIENT_BOUND: i32 = 0x3F;
+pub const ENCRYPTION_RESPONSE: i32 = 0x01;
+pub const ENCRYPTION_REQUEST: i32 = 0x01;
 
 #[repr(i32)]
 pub enum State {
@@ -122,32 +128,59 @@ pub async fn handle_event<'a>(context: EventContext<'a>) -> Result<(), io::Error
             match *context.header.id {
                 LOGIN_START => {
                     let info = deserialize_from_slice::<LoginStart>(context.buf)?.1;
-                    let uuid = Uuid::new_v4();
+                    let entity_id = {
+                        let mut entity_world = context.world.write().unwrap();
+                        let entity_world = entity_world.spawn(PlayerName {
+                            name: format!("{}_{}", info.name, rand::random::<u16>()),
+                            uuid: Uuid::new_v4(),
+                        });
+                        entity_world.id()
+                    };
+
+                    *context.entity = Some(entity_id);
+
+                    #[derive(Serialize)]
+                    pub struct EncryptionRequest {
+                        server_id: String,
+                        public_key_length: vsize,
+                        public_key: Vec<u8>,
+                        verify_token_length: vsize,
+                        verify_token: Vec<u8>,
+                    }
+                }
+
+                ENCRYPTION_RESPONSE => {
+                    #[derive(Deserialize)]
+                    pub struct EncryptionResponse {
+                        shared_secret_length: vsize,
+                        shared_secret: Vec<u8>,
+                        verify_token_length: vsize,
+                        verify_token: Vec<u8>,
+                    }
+
+                    let response = deserialize_from_slice::<EncryptionResponse>(context.buf)?;
+
+                    let player = {
+                        let world = context.world.read().unwrap();
+                        world
+                            .get::<PlayerName>(context.entity.unwrap())
+                            .unwrap()
+                            .clone()
+                    };
 
                     context
                         .stream
                         .send(
                             LOGIN_SUCCESS,
                             &LoginSuccess {
-                                uuid: uuid.to_string(),
-                                name: info.name.clone(),
+                                uuid: player.uuid.to_string(),
+                                name: player.name.clone(),
                             },
                         )
                         .await?;
 
                     *context.state = State::Play;
-
-                    let entity_id = {
-                        let mut entity_world = context.world.write().unwrap();
-                        let entity_world = entity_world.spawn(PlayerName {
-                            name: format!("{}_{}", info.name, rand::random::<u16>()),
-                            uuid,
-                        });
-                        entity_world.id()
-                    };
-
-                    *context.entity = Some(entity_id);
-                    let entity_id = entity_id.index() as i32;
+                    let entity_id = context.entity.unwrap().index() as i32;
 
                     context
                         .stream
@@ -219,7 +252,7 @@ pub async fn handle_event<'a>(context: EventContext<'a>) -> Result<(), io::Error
                                 let i = y << 8 | z << 4 | x;
                                 let t = 35; // 35;
                                 let d = x + z;
-                                
+
                                 // data[2 * i] = (t & 0xFF) as u8;
                                 // data[2 * i + 1] = (t >> 8) as u8;
                                 data[2 * i] = ((t << 4) | d) as u8;
@@ -236,20 +269,24 @@ pub async fn handle_event<'a>(context: EventContext<'a>) -> Result<(), io::Error
                         data[(n * 8192 + n * 2048 + i) as usize] = 0xFF;
                     }
 
-
-                    let mut bulk = ChunkBulk { skylight_sent: true, chunk_col_count: VarInt::<usize>(9), metas: Vec::new(), datas: Vec::new()  };
+                    let mut bulk = ChunkBulk {
+                        skylight_sent: true,
+                        chunk_col_count: VarInt::<usize>(9),
+                        metas: Vec::new(),
+                        datas: Vec::new(),
+                    };
                     for x in -1..=1 {
                         for z in -1..=1 {
-                            bulk.metas.push(ChunkMeta { x, z, prim_bit_mask: u16::MAX });
+                            bulk.metas.push(ChunkMeta {
+                                x,
+                                z,
+                                prim_bit_mask: u16::MAX,
+                            });
                             bulk.datas.push(data.clone());
                         }
                     }
 
-                    s.send(
-                        0x26,
-                        &bulk,
-                    )
-                    .await?;
+                    s.send(0x26, &bulk).await?;
 
                     s.send(
                         0x39,
@@ -306,16 +343,30 @@ pub async fn handle_event<'a>(context: EventContext<'a>) -> Result<(), io::Error
                         signature: String,
                     }
 
-                    let mut pli = PlayerListItem { id: VarInt::<i32>(0x38), action: VarInt::<i32>(0), num_players: VarInt::<usize>(players.len()), players: Vec::new() };
-                    
+                    let mut pli = PlayerListItem {
+                        id: VarInt::<i32>(0x38),
+                        action: VarInt::<i32>(0),
+                        num_players: VarInt::<usize>(players.len()),
+                        players: Vec::new(),
+                    };
+
                     for player in players {
-                        pli.players.push(Player { uuid: player.1.uuid, name: player.1.name, num_of_props: VarInt::<usize>(0), properties: Vec::new(), game_mode: VarInt::<i32>(0), ping: VarInt::<i32>(0), has_display_name: false, display_name: None });
+                        pli.players.push(Player {
+                            uuid: player.1.uuid,
+                            name: player.1.name,
+                            num_of_props: VarInt::<usize>(0),
+                            properties: Vec::new(),
+                            game_mode: VarInt::<i32>(0),
+                            ping: VarInt::<i32>(0),
+                            has_display_name: false,
+                            display_name: None,
+                        });
                     }
-                    
+
                     let packet = serialize_with_size(&pli)?;
                     let packet: Arc<[u8]> = (&packet[..]).into();
                     println!("{:02x?}", packet);
-                    
+
                     s.write_all(&packet.clone()).await.unwrap();
                     let thyself = thyself.unwrap();
 
@@ -334,7 +385,6 @@ pub async fn handle_event<'a>(context: EventContext<'a>) -> Result<(), io::Error
 
                     for peer in context.peers.iter() {
                         if peer.key() != context.addr {
-
                             peer.send(packet.clone()).await.unwrap();
                         }
                     }
@@ -353,9 +403,19 @@ pub async fn handle_event<'a>(context: EventContext<'a>) -> Result<(), io::Error
                         metadata: Vec<u8>,
                     }
 
-                    
                     // First send the new player to old clients
-                    let spawn = SpawnPlayer { id: VarInt::<i32>(0x0C), eid: VarInt::<i32>(context.entity.unwrap().index() as i32), uuid: thyself.uuid, x: 0, y: 65 * 32, z: 0, yaw: 0, pitch: 0, current_item: 0, metadata: vec![6 | (3 << 5), 0, 0, 0xA0, 0x41, 0x7F] };
+                    let spawn = SpawnPlayer {
+                        id: VarInt::<i32>(0x0C),
+                        eid: VarInt::<i32>(context.entity.unwrap().index() as i32),
+                        uuid: thyself.uuid,
+                        x: 0,
+                        y: 65 * 32,
+                        z: 0,
+                        yaw: 0,
+                        pitch: 0,
+                        current_item: 0,
+                        metadata: vec![6 | (3 << 5), 0, 0, 0xA0, 0x41, 0x7F],
+                    };
                     println!("{:?}", spawn);
                     let spawn = serialize_with_size(&spawn)?;
                     let spawn: Arc<[u8]> = spawn.into();

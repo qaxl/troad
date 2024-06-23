@@ -6,6 +6,7 @@ use std::{
 };
 
 use bevy_ecs::{entity::Entity, world::World};
+use cfb8::Encryptor;
 use dashmap::DashMap;
 use serde::Serialize;
 use tokio::{
@@ -25,6 +26,61 @@ use crate::{
 
 pub type PeersMap = Arc<DashMap<SocketAddr, Sender<Arc<[u8]>>>>;
 
+use aes::cipher::{generic_array::GenericArray, BlockCipher, BlockDecrypt, BlockEncrypt, BlockEncryptMut, KeyInit, KeyIvInit, AsyncStreamCipher};
+use aes::Aes128;
+
+type Aes128Cfb8Enc = cfb8::Encryptor<aes::Aes128>;
+type Aes128Cfb8Dec = cfb8::Decryptor<aes::Aes128>;
+
+fn test() {
+
+    let key = [0x42; 16];
+    let iv = [0x24; 16];
+    let plaintext = *b"hello world! this is my plaintext.";
+let ciphertext = "33b356ce9184290c4c8facc1c0b1f918d5475aeb75b88c161ca65bdf05c7137ff4b0";
+
+// encrypt/decrypt in-place
+let mut buf =(plaintext.to_vec());
+    Aes128Cfb8Enc::new(&key.into(), &iv.into()).encrypt(&mut buf);
+    println!("{:02x?}", buf);
+    Aes128Cfb8Dec::new(&key.into(), &iv.into()).decrypt(&mut buf);
+    println!("{}", String::from_utf8(buf).unwrap());
+
+    // Initialize cipher
+    let key = GenericArray::from([0u8; 16]);
+    let mut block = GenericArray::from([42u8; 16]);
+    let cipher = Aes128::new(&key);
+
+    let block_copy = block.clone();
+
+    // Encrypt block in-place
+    cipher.encrypt_block(&mut block);
+
+    // And decrypt it back
+    cipher.decrypt_block(&mut block);
+    assert_eq!(block, block_copy);
+
+    // Implementation supports parallel block processing. Number of blocks
+    // processed in parallel depends in general on hardware capabilities.
+    // This is achieved by instruction-level parallelism (ILP) on a single
+    // CPU core, which is differen from multi-threaded parallelism.
+    let mut blocks = [block; 100];
+    cipher.encrypt_blocks(&mut blocks);
+
+    for block in blocks.iter_mut() {
+        cipher.decrypt_block(block);
+        assert_eq!(block, &block_copy);
+    }
+
+    // `decrypt_blocks` also supports parallel block processing.
+    cipher.decrypt_blocks(&mut blocks);
+
+    for block in blocks.iter_mut() {
+        cipher.encrypt_block(block);
+        assert_eq!(block, &block_copy);
+    }
+}
+
 // TODO: move this to mod.rs, actually to server.rs
 pub struct Server {
     socket: TcpListener,
@@ -43,6 +99,7 @@ impl Server {
     }
 
     pub async fn run(self) -> ! {
+        test();
         let peers = Arc::new(DashMap::new());
 
         let xd = PluginMessage::<Vec<u8>> {
@@ -156,7 +213,7 @@ async fn handle_incoming_data(
             header,
             world: world.clone(),
             entity,
-            addr: &addr
+            addr: &addr,
         })
         .await?;
         read += size + *header.len as usize - 1; // FIXME: this doesn't work if the packet id is too large.
