@@ -3,6 +3,6 @@ mod err;
 mod ser;
 mod var_int;
 
-pub use de::{Deserializer, deserialize_from_slice};
-pub use ser::{Serializer, serialize};
-pub use var_int::{VarI32, VarI64, VarInt};
+pub use de::{deserialize_from_slice, Deserializer};
+pub use ser::{serialize_to_vec, serialize_with_size, Serializer};
+pub use var_int::{v32, v64, vsize, VarInt};

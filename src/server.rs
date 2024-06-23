@@ -1,16 +1,27 @@
 use std::{
-    io, net::SocketAddr, sync::Arc, time::Instant
+    io,
+    net::SocketAddr,
+    sync::{Arc, RwLock},
+    time::Instant,
 };
 
+use bevy_ecs::world::World;
 use dashmap::DashMap;
+use serde::Serialize;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
-    net::{
-        TcpListener, TcpStream,
-    }, sync::mpsc::{self, Sender, Receiver},
+    net::{TcpListener, TcpStream},
+    sync::mpsc::{self, Receiver, Sender},
 };
+use uuid::Uuid;
 
-use crate::{event::{handle_event, EventContext, State}, protocol::{packets::Header, serde::deserialize_from_slice}};
+use crate::{
+    event::{handle_event, EventContext, State},
+    protocol::{
+        packets::{Header, PluginMessage},
+        serde::{deserialize_from_slice, serialize_to_vec, serialize_with_size, v32, VarInt},
+    },
+};
 
 pub type PeersMap = Arc<DashMap<SocketAddr, Sender<Arc<[u8]>>>>;
 
@@ -34,6 +45,17 @@ impl Server {
     pub async fn run(self) -> ! {
         let peers = Arc::new(DashMap::new());
 
+        let xd = PluginMessage::<Vec<u8>> {
+            channel: String::from("MC|Brand"),
+            data: "troad".to_owned().into_bytes(),
+        };
+
+        println!("{:02x?}", serialize_to_vec(&xd).unwrap());
+        println!("{:02x?}", bincode::serialize(&xd).unwrap());
+        println!("{}", Uuid::new_v4().to_string());
+
+        let world = Arc::new(RwLock::new(World::new()));
+
         loop {
             match self.socket.accept().await {
                 Ok((stream, addr)) => {
@@ -45,8 +67,12 @@ impl Server {
                     // Yes, this should panic if it fails bro.
                     stream.set_nodelay(true).unwrap();
 
+                    let world = world.clone();
+
                     tokio::spawn(async move {
-                        if let Err(e) = Server::handle_connection(peers.clone(), addr, stream, rx).await {
+                        if let Err(e) =
+                            Server::handle_connection(peers.clone(), addr, stream, rx, world).await
+                        {
                             eprintln!("Error occurred while trying to handle connection {e}");
                         }
 
@@ -69,14 +95,15 @@ impl Server {
         peers: PeersMap,
         addr: SocketAddr,
         mut stream: TcpStream,
-        mut rx: Receiver<Arc<[u8]>>
+        mut rx: Receiver<Arc<[u8]>>,
+        world: Arc<RwLock<World>>,
     ) -> Result<(), io::Error> {
         // Decently-sized receive buffer.
         // Each connected client would at least take in 256 KiB...
         // 100 would require roughly ~4 MiB.
         // TODO: to improve perf, this could be stored in a stack...?
         let mut buf = vec![0; 1024 * 256];
-        let mut state = State::Connected;
+        let mut state = State::Handshaking;
 
         loop {
             tokio::select! {
@@ -88,11 +115,11 @@ impl Server {
 
                     // println!("Received {size} from {addr}: {:02x?}", &buf[..size]);
                     let start = Instant::now();
-                    handle_incoming_data(&peers, addr, &mut stream, &mut state, &buf[..size]).await?;  
+                    handle_incoming_data(&peers, addr, &mut stream, &mut state, &buf[..size], world.clone()).await?;
                     let end = Instant::now();
 
-                    if (end - start).as_micros() > 200 {
-                        println!("Took {}ms/{}μs/{}ns!", (end - start).as_millis(), (end - start).as_micros(), (end - start).as_nanos());                  
+                    if (end - start).as_micros() > 2 {
+                        println!("Took {}ms/{}μs/{}ns!", (end - start).as_millis(), (end - start).as_micros(), (end - start).as_nanos());
                     }
                 }
                 msg = rx.recv() => {
@@ -107,12 +134,27 @@ impl Server {
     }
 }
 
-async fn handle_incoming_data(peers: &PeersMap, addr: SocketAddr, stream: &mut TcpStream, state: &mut State, buf: &[u8]) -> Result<(), io::Error> {
+async fn handle_incoming_data(
+    peers: &PeersMap,
+    addr: SocketAddr,
+    stream: &mut TcpStream,
+    state: &mut State,
+    buf: &[u8],
+    world: Arc<RwLock<World>>,
+) -> Result<(), io::Error> {
     let mut read = 0;
     while read < buf.len() {
         let (size, header) = deserialize_from_slice::<Header>(&buf[read..])?;
-        
-        handle_event(EventContext { peers, state, stream, buf: &buf[read + size..], header }).await?;
+
+        handle_event(EventContext {
+            peers,
+            state,
+            stream,
+            buf: &buf[read + size..],
+            header,
+            world: world.clone(),
+        })
+        .await?;
         read += size + *header.len as usize - 1; // FIXME: this doesn't work if the packet id is too large.
     }
 
@@ -152,5 +194,24 @@ async fn _handle_if_lslp(socket: &mut TcpStream, buf: &[u8]) -> bool {
         true
     } else {
         false
+    }
+}
+
+pub trait TcpProtocolExt {
+    async fn send<T: Serialize>(&mut self, id: i32, p: &T) -> io::Result<()>;
+}
+
+impl TcpProtocolExt for TcpStream {
+    async fn send<T: Serialize>(&mut self, id: i32, p: &T) -> io::Result<()> {
+        #[derive(Serialize)]
+        pub struct Data<'a, T> {
+            id: v32,
+            p: &'a T,
+        }
+
+        let d = serialize_with_size(&Data { id: VarInt::<i32>(id), p })?;
+        println!("{d:02x?}");
+
+        self.write_all(&d).await
     }
 }

@@ -1,11 +1,8 @@
-use std::sync::Arc;
-
-use num::pow;
 use server::Server;
 
-mod server;
-mod protocol;
 mod event;
+mod protocol;
+mod server;
 
 #[tokio::main]
 async fn main() {

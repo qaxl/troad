@@ -6,15 +6,22 @@ use serde::{ser, Serialize};
 
 use super::{
     err::{Error, Result},
-    VarInt,
+    vsize, VarInt,
 };
 
-#[derive(Default, Debug)]
+#[derive(Debug)]
 pub struct Serializer {
     output: Vec<u8>,
 }
 
 impl Serializer {
+    // yea i know, 10 bytes extra... don't be so dramatic bro
+    pub fn new() -> Self {
+        Self {
+            output: Vec::with_capacity(16),
+        }
+    }
+
     pub fn output(self) -> Vec<u8> {
         self.output
     }
@@ -399,8 +406,23 @@ impl<'a> ser::SerializeStructVariant for &'a mut Serializer {
     }
 }
 
-pub fn serialize<T: Serialize>(data: &T) -> Result<Vec<u8>> {
-    let mut serializer = Serializer::default();
+pub fn serialize_with_size<T: Serialize>(data: &T) -> Result<Vec<u8>> {
+    let mut serializer = Serializer::new();
+    data.serialize(&mut serializer)?;
+
+    let len = {
+        let len = VarInt::<usize>(serializer.output.len());
+        let mut serializer = Serializer::new();
+
+        len.serialize(&mut serializer)?;
+        serializer.output
+    };
+
+    Ok([len, serializer.output].concat())
+}
+
+pub fn serialize_to_vec<T: Serialize>(data: &T) -> Result<Vec<u8>> {
+    let mut serializer = Serializer::new();
     data.serialize(&mut serializer)?;
 
     Ok(serializer.output)

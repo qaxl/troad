@@ -338,4 +338,3 @@ pub fn deserialize_from_slice<T: for<'a> Deserialize<'a>>(slice: &[u8]) -> Resul
 
     Ok((slice.len() - deserializer.size(), data))
 }
-

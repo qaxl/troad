@@ -13,8 +13,12 @@ use serde::{
 pub struct VarInt<T: PrimInt>(pub T);
 
 // Hereby, let's declare the "official" ones here.
-pub type VarI32 = VarInt<i32>;
-pub type VarI64 = VarInt<i64>;
+pub type v32 = VarInt<i32>;
+pub type v64 = VarInt<i64>;
+
+// all other var int types are supposed to be signed, but because rust uses `usize`
+// in so many other places for buffer sizes, this is an exception and is using `usize` instead of `isize`.
+pub type vsize = VarInt<usize>;
 
 // After this line of code, I have absolutely idea why and how it works.
 // Improvements are welcome, this was thrown together by me with no experience in serde.

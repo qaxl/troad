@@ -8,6 +8,7 @@ pub struct Header {
     pub id: VarInt<i32>,
 }
 
+#[deprecated = "serialize with serialize_with_size instead"]
 #[derive(Serialize)]
 pub struct Packet<T> {
     pub header: Header,
@@ -60,7 +61,7 @@ pub struct Ping {
 
 #[derive(Serialize)]
 pub struct StringPck<'a> {
-    pub str: &'a str
+    pub str: &'a str,
 }
 
 #[derive(Deserialize, Debug)]
@@ -101,19 +102,19 @@ pub struct ClientSettings {
     pub view_distance: i8,
     pub chat_mode: i8,
     pub chat_colors: bool,
-    // TODO: bitfield... 
+    // TODO: bitfield...
     /*
-    Displayed Skin Parts flags:
+        Displayed Skin Parts flags:
 
-    Bit 0 (0x01): Cape enabled
-    Bit 1 (0x02): Jacket enabled
-    Bit 2 (0x04): Left Sleeve enabled
-    Bit 3 (0x08): Right Sleeve enabled
-    Bit 4 (0x10): Left Pants Leg enabled
-    Bit 5 (0x20): Right Pants Leg enabled
-    Bit 6 (0x40): Hat enabled
+        Bit 0 (0x01): Cape enabled
+        Bit 1 (0x02): Jacket enabled
+        Bit 2 (0x04): Left Sleeve enabled
+        Bit 3 (0x08): Right Sleeve enabled
+        Bit 4 (0x10): Left Pants Leg enabled
+        Bit 5 (0x20): Right Pants Leg enabled
+        Bit 6 (0x40): Hat enabled
 
-The most significant bit (bit 7, 0x80) appears to be unused.  */
+    The most significant bit (bit 7, 0x80) appears to be unused.  */
     pub displayed_skin_parts: i8,
 }
 
@@ -156,7 +157,7 @@ pub struct ServerDifficulty {
 #[derive(Serialize, Deserialize)]
 pub struct SpawnPosition {
     pub location: u64,
-} 
+}
 
 #[derive(Serialize, Deserialize)]
 pub struct PlayerAbilities {
