@@ -10,9 +10,11 @@ use serde::{
     Deserialize,
 };
 
+use crate::protocol::serde::var_int::VarIntVisitor;
+
 use super::{
     err::{Error, Result},
-    VarInt,
+    vsize, VarInt,
 };
 
 pub struct Deserializer<'de> {
@@ -225,7 +227,7 @@ impl<'a, 'de> de::Deserializer<'de> for &'a mut Deserializer<'de> {
     where
         V: Visitor<'de>,
     {
-        todo!()
+        self.deserialize_tuple(len, visitor)
     }
 
     fn deserialize_map<V>(self, visitor: V) -> Result<V::Value>
@@ -337,4 +339,38 @@ pub fn deserialize_from_slice<T: for<'a> Deserialize<'a>>(slice: &[u8]) -> Resul
     let data = T::deserialize(&mut deserializer)?;
 
     Ok((slice.len() - deserializer.size(), data))
+}
+
+#[derive(Debug)]
+pub struct SizedVec(pub vsize, pub Vec<u8>);
+
+struct SizedVecVisitor;
+impl<'de> Visitor<'de> for SizedVecVisitor {
+    type Value = SizedVec;
+
+    fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+        formatter.write_str("a SizedVec")
+    }
+
+    fn visit_seq<A>(self, mut seq: A) -> std::result::Result<Self::Value, A::Error>
+    where
+        A: SeqAccess<'de>,
+    {
+        let size = seq.next_element::<vsize>()?.unwrap();
+        let mut vec = vec![0; *size];
+        for v in &mut vec {
+            *v = seq.next_element::<u8>()?.unwrap();
+        }
+
+        Ok(SizedVec(size, vec))
+    }
+}
+
+impl<'de> Deserialize<'de> for SizedVec {
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: de::Deserializer<'de>,
+    {
+        deserializer.deserialize_tuple_struct("", usize::MAX, SizedVecVisitor)
+    }
 }

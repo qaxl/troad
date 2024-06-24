@@ -5,9 +5,15 @@ use std::{
     time::Instant,
 };
 
-use bevy_ecs::{entity::Entity, world::World};
+use aes::{cipher::AsyncStreamCipher, Aes128, Aes128Enc};
+use bevy_ecs::{change_detection::MutUntyped, entity::Entity, world::World};
 use cfb8::Encryptor;
+use cipher::{
+    generic_array::sequence::GenericSequence, inout::InOutBuf, BlockDecryptMut, BlockEncryptMut,
+    KeyInit, KeyIvInit,
+};
 use dashmap::DashMap;
+use rsa::{pkcs1::EncodeRsaPublicKey, pkcs8::Document, RsaPrivateKey, RsaPublicKey};
 use serde::Serialize;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
@@ -17,7 +23,7 @@ use tokio::{
 use uuid::Uuid;
 
 use crate::{
-    event::{handle_event, EventContext, State},
+    event::{handle_event, Aes128Cfb8Dec, Aes128Cfb8Enc, Encryption, EventContext, State},
     protocol::{
         packets::{Header, PluginMessage},
         serde::{deserialize_from_slice, serialize_to_vec, serialize_with_size, v32, VarInt},
@@ -25,61 +31,6 @@ use crate::{
 };
 
 pub type PeersMap = Arc<DashMap<SocketAddr, Sender<Arc<[u8]>>>>;
-
-use aes::cipher::{generic_array::GenericArray, BlockCipher, BlockDecrypt, BlockEncrypt, BlockEncryptMut, KeyInit, KeyIvInit, AsyncStreamCipher};
-use aes::Aes128;
-
-type Aes128Cfb8Enc = cfb8::Encryptor<aes::Aes128>;
-type Aes128Cfb8Dec = cfb8::Decryptor<aes::Aes128>;
-
-fn test() {
-
-    let key = [0x42; 16];
-    let iv = [0x24; 16];
-    let plaintext = *b"hello world! this is my plaintext.";
-let ciphertext = "33b356ce9184290c4c8facc1c0b1f918d5475aeb75b88c161ca65bdf05c7137ff4b0";
-
-// encrypt/decrypt in-place
-let mut buf =(plaintext.to_vec());
-    Aes128Cfb8Enc::new(&key.into(), &iv.into()).encrypt(&mut buf);
-    println!("{:02x?}", buf);
-    Aes128Cfb8Dec::new(&key.into(), &iv.into()).decrypt(&mut buf);
-    println!("{}", String::from_utf8(buf).unwrap());
-
-    // Initialize cipher
-    let key = GenericArray::from([0u8; 16]);
-    let mut block = GenericArray::from([42u8; 16]);
-    let cipher = Aes128::new(&key);
-
-    let block_copy = block.clone();
-
-    // Encrypt block in-place
-    cipher.encrypt_block(&mut block);
-
-    // And decrypt it back
-    cipher.decrypt_block(&mut block);
-    assert_eq!(block, block_copy);
-
-    // Implementation supports parallel block processing. Number of blocks
-    // processed in parallel depends in general on hardware capabilities.
-    // This is achieved by instruction-level parallelism (ILP) on a single
-    // CPU core, which is differen from multi-threaded parallelism.
-    let mut blocks = [block; 100];
-    cipher.encrypt_blocks(&mut blocks);
-
-    for block in blocks.iter_mut() {
-        cipher.decrypt_block(block);
-        assert_eq!(block, &block_copy);
-    }
-
-    // `decrypt_blocks` also supports parallel block processing.
-    cipher.decrypt_blocks(&mut blocks);
-
-    for block in blocks.iter_mut() {
-        cipher.encrypt_block(block);
-        assert_eq!(block, &block_copy);
-    }
-}
 
 // TODO: move this to mod.rs, actually to server.rs
 pub struct Server {
@@ -99,7 +50,6 @@ impl Server {
     }
 
     pub async fn run(self) -> ! {
-        test();
         let peers = Arc::new(DashMap::new());
 
         let xd = PluginMessage::<Vec<u8>> {
@@ -110,6 +60,23 @@ impl Server {
         println!("{:02x?}", serialize_to_vec(&xd).unwrap());
         println!("{:02x?}", bincode::serialize(&xd).unwrap());
         println!("{}", Uuid::new_v4().to_string());
+
+        let mut data = [
+            0x56, 0xbe, 0x20, 0xbb, 0xa9, 0xb7, 0x14, 0xfa, 0x7b, 0x9d, 0x3f, 0x36, 0x19, 0x08,
+            0xdd, 0x49, 0xfa, 0x0d, 0xe9, 0xeb, 0xec, 0xe5, 0x8e, 0xed, 0x71, 0x2d, 0xb8, 0x92,
+            0x6d, 0xff, 0x47, 0x7e, 0x39, 0xae, 0x8a, 0xae, 0xa6, 0x13, 0xc4, 0x61, 0x44, 0x8f,
+            0x8a, 0xbc, 0xc0, 0x7f,
+        ];
+        let secret = [
+            0x65, 0xcf, 0xf8, 0xb0, 0x0a, 0x5a, 0x15, 0x08, 0x27, 0x3a, 0x25, 0x71, 0xa2, 0xa6,
+            0x94, 0x1d,
+        ];
+
+        Aes128Cfb8Dec::new_from_slices(&secret, &secret)
+            .unwrap()
+            .decrypt(&mut data);
+
+        println!("{:02x?}", data);
 
         let world = Arc::new(RwLock::new(World::new()));
 
@@ -163,6 +130,18 @@ impl Server {
         let mut state = State::Handshaking;
         let mut entity = None;
 
+        let priv_key = {
+            let mut rng = rand::thread_rng();
+            let bits = 1024;
+            RsaPrivateKey::new(&mut rng, bits).expect("Failed to generate a key")
+        };
+
+        let pub_key = RsaPublicKey::from(&priv_key);
+
+        let mut verify_token = rand::random::<u128>();
+        let mut shared_secret = Vec::new();
+        let mut cipher = None;
+
         loop {
             tokio::select! {
                 res = stream.read(&mut buf[..]) => {
@@ -173,7 +152,7 @@ impl Server {
 
                     // println!("Received {size} from {addr}: {:02x?}", &buf[..size]);
                     let start = Instant::now();
-                    handle_incoming_data(&peers, addr, &mut stream, &mut state, &buf[..size], world.clone(), &mut entity).await?;
+                    handle_incoming_data(&peers, addr, &mut stream, &mut state, &mut buf[..size], world.clone(), &mut entity, &mut Encryption { pub_key: pub_key.clone(), priv_key: priv_key.clone() }, verify_token, &mut shared_secret, &mut cipher).await?;
                     let end = Instant::now();
 
                     if (end - start).as_micros() > 300 {
@@ -197,11 +176,27 @@ async fn handle_incoming_data(
     addr: SocketAddr,
     stream: &mut TcpStream,
     state: &mut State,
-    buf: &[u8],
+    buf: &mut [u8],
     world: Arc<RwLock<World>>,
     entity: &mut Option<Entity>,
+    pub_key: &mut Encryption,
+    verify_token: u128,
+    shared_secret: &mut Vec<u8>,
+    cipher: &mut Option<Cipher>,
 ) -> Result<(), io::Error> {
     let mut read = 0;
+    if let Some(cipher) = cipher {
+        // encryption has been enabled bro
+        // no idea will this work tho...
+        decrypt_packet(&mut cipher.1, buf);
+        // Aes128Cfb8Dec::new((&shared_secret[..]).into(), (&shared_secret[..]).into()).decrypt(buf);
+    }
+
+    println!(
+        "Received a (encrypted: {}) {}-byte packet.",
+        shared_secret.len() != 0,
+        buf.len()
+    );
     while read < buf.len() {
         let (size, header) = deserialize_from_slice::<Header>(&buf[read..])?;
 
@@ -214,12 +209,22 @@ async fn handle_incoming_data(
             world: world.clone(),
             entity,
             addr: &addr,
+            encryption: pub_key,
+            verify_token,
+            shared_secret,
+            cipher,
         })
         .await?;
         read += size + *header.len as usize - 1; // FIXME: this doesn't work if the packet id is too large.
     }
 
     Ok(())
+}
+
+pub fn decrypt_packet(cipher: &mut Aes128Cfb8Dec, packet: &mut [u8]) {
+    let (chunks, rest) = InOutBuf::from(packet).into_chunks();
+    assert!(rest.is_empty());
+    cipher.decrypt_blocks_inout_mut(chunks);
 }
 
 // TODO: need a better way. so for now we just IGNORE.
@@ -258,8 +263,25 @@ async fn _handle_if_lslp(socket: &mut TcpStream, buf: &[u8]) -> bool {
     }
 }
 
+pub struct Cipher(Aes128Cfb8Enc, Aes128Cfb8Dec);
+
+impl Cipher {
+    pub fn new(key: &[u8]) -> Cipher {
+        Cipher(
+            Aes128Cfb8Enc::new_from_slices(key, key).unwrap(),
+            Aes128Cfb8Dec::new_from_slices(key, key).unwrap(),
+        )
+    }
+}
+
 pub trait TcpProtocolExt {
     async fn send<T: Serialize>(&mut self, id: i32, p: &T) -> io::Result<()>;
+    async fn send_enc<T: Serialize>(
+        &mut self,
+        cipher: &mut Cipher,
+        id: i32,
+        p: &T,
+    ) -> io::Result<()>;
 }
 
 impl TcpProtocolExt for TcpStream {
@@ -275,5 +297,32 @@ impl TcpProtocolExt for TcpStream {
             p,
         })?)
         .await
+    }
+
+    async fn send_enc<T: Serialize>(
+        &mut self,
+        cipher: &mut Cipher,
+        id: i32,
+        p: &T,
+    ) -> io::Result<()> {
+        #[derive(Serialize)]
+        pub struct Data<'a, T> {
+            id: v32,
+            p: &'a T,
+        }
+
+        let mut p = serialize_with_size(&Data {
+            id: VarInt::<i32>(id),
+            p,
+        })?;
+        {
+            let (chunks, leftovers) = InOutBuf::from(&mut p[..]).into_chunks();
+            if !leftovers.is_empty() {
+                panic!("what the fuck");
+            }
+
+            cipher.0.encrypt_blocks_inout_mut(chunks);
+        }
+        self.write_all(&p).await
     }
 }

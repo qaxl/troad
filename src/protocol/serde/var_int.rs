@@ -54,7 +54,7 @@ impl<T: PrimInt> Serialize for VarInt<T> {
     }
 }
 
-struct VarIntVisitor<T>(PhantomData<T>);
+pub(super) struct VarIntVisitor<T>(pub(super) PhantomData<T>);
 
 impl<'de, T: PrimInt + FromPrimitive> Visitor<'de> for VarIntVisitor<T> {
     type Value = VarInt<T>;
