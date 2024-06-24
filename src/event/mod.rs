@@ -389,17 +389,17 @@ pub async fn handle_event<'a>(context: EventContext<'a>) -> Result<(), io::Error
                             reduced_debug_info: false,
                         }).await?;
 
-                        // context
-                        //     .stream
-                        //     .send_enc(
-                        //         cipher,
-                        //         PLUGIN_MESSAGE_CLIENT_BOUND,
-                        //         &PluginMessage {
-                        //             channel: String::from("MC|Brand"),
-                        //             data: b"troad",
-                        //         },
-                        //     )
-                        //     .await?;
+                        context
+                            .stream
+                            .send_enc(
+                                cipher,
+                                PLUGIN_MESSAGE_CLIENT_BOUND,
+                                &PluginMessage {
+                                    channel: String::from("MC|Brand"),
+                                    data: b"troad",
+                                },
+                            )
+                            .await?;
 
                         context
                             .stream
@@ -417,69 +417,68 @@ pub async fn handle_event<'a>(context: EventContext<'a>) -> Result<(), io::Error
                             )
                             .await?;
 
-                        // let n = 16;
-                        // let total = n * 8192 + n * 2048 + n * 2048 + 256;
+                        let n = 16;
+                        let total = n * 8192 + n * 2048 + n * 2048 + 256;
 
-                        // let s = context.stream;
-                        // let mut data = vec![0; total as usize];
-                        // #[derive(Serialize, Default)]
-                        // pub struct ChunkBulk {
-                        //     skylight_sent: bool,
-                        //     chunk_col_count: vsize,
-                        //     metas: Vec<ChunkMeta>,
-                        //     datas: Vec<Vec<u8>>,
-                        // }
+                        let s = context.stream;
+                        let mut data = vec![0; total as usize];
+                        #[derive(Serialize, Default)]
+                        pub struct ChunkBulk {
+                            skylight_sent: bool,
+                            chunk_col_count: vsize,
+                            metas: Vec<ChunkMeta>,
+                            datas: Vec<Vec<u8>>,
+                        }
 
-                        // #[derive(Serialize)]
-                        // pub struct ChunkMeta {
-                        //     x: i32,
-                        //     z: i32,
-                        //     prim_bit_mask: u16,
-                        // }
+                        #[derive(Serialize)]
+                        pub struct ChunkMeta {
+                            x: i32,
+                            z: i32,
+                            prim_bit_mask: u16,
+                        }
 
-                        // let y = 63;
+                        let y = 63;
 
-                        // for y in 0..=63 {
-                        //     for x in 0..=15 {
-                        //         for z in 0..=15 {
-                        //             let i = y << 8 | z << 4 | x;
-                        //             let t = 35; // 35;
-                        //             let d = x + z;
+                        for y in 0..=63 {
+                            for x in 0..=15 {
+                                for z in 0..=15 {
+                                    let i = y << 8 | z << 4 | x;
+                                    let t = 35; // 35;
+                                    let d = x + z;
 
-                        //             // data[2 * i] = (t & 0xFF) as u8;
-                        //             // data[2 * i + 1] = (t >> 8) as u8;
-                        //             data[2 * i] = ((t << 4) | d) as u8;
-                        //             data[2 * i + 1] = (t >> 4) as u8;
-                        //         }
-                        //     }
-                        // }
+                                    // data[2 * i] = (t & 0xFF) as u8;
+                                    // data[2 * i + 1] = (t >> 8) as u8;
+                                    data[2 * i] = ((t << 4) | d) as u8;
+                                    data[2 * i + 1] = (t >> 4) as u8;
+                                }
+                            }
+                        }
 
-                        // for i in 0..n * 2048 {
-                        //     data[(n * 8192 + i) as usize] = 0xFF;
-                        // }
+                        for i in 0..n * 2048 {
+                            data[(n * 8192 + i) as usize] = 0xFF;
+                        }
 
-                        // for i in 0..n * 2048 {
-                        //     data[(n * 8192 + n * 2048 + i) as usize] = 0xFF;
-                        // }
+                        for i in 0..n * 2048 {
+                            data[(n * 8192 + n * 2048 + i) as usize] = 0xFF;
+                        }
 
-                        // let mut bulk = ChunkBulk {
-                        //     skylight_sent: true,
-                        //     chunk_col_count: VarInt::<usize>(9),
-                        //     metas: Vec::new(),
-                        //     datas: Vec::new(),
-                        // };
-                        // for x in -1..=1 {
-                        //     for z in -1..=1 {
-                        //         bulk.metas.push(ChunkMeta {
-                        //             x,
-                        //             z,
-                        //             prim_bit_mask: u16::MAX,
-                        //         });
-                        //         bulk.datas.push(data.clone());
-                        //     }
-                        // }
-
-                        // s.send_enc(&ss, 0x26, &bulk).await?;
+                        let mut bulk = ChunkBulk {
+                            skylight_sent: true,
+                            chunk_col_count: VarInt::<usize>(9),
+                            metas: Vec::new(),
+                            datas: Vec::new(),
+                        };
+                        for x in -1..=1 {
+                            for z in -1..=1 {
+                                bulk.metas.push(ChunkMeta {
+                                    x,
+                                    z,
+                                    prim_bit_mask: u16::MAX,
+                                });
+                                bulk.datas.push(data.clone());
+                            }
+                        }
+                        s.send_enc(cipher, 0x26, &bulk).await?;
 
                         // s.send_enc(
                         //     &ss,
