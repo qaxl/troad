@@ -5,9 +5,7 @@ use std::{
     time::Instant,
 };
 
-use aes::{cipher::AsyncStreamCipher, Aes128, Aes128Enc};
 use bevy_ecs::{change_detection::MutUntyped, entity::Entity, world::World};
-use cfb8::Encryptor;
 use cipher::{
     generic_array::sequence::GenericSequence, inout::InOutBuf, BlockDecryptMut, BlockEncryptMut,
     KeyInit, KeyIvInit,
@@ -21,7 +19,6 @@ use tokio::{
     sync::mpsc::{self, Receiver, Sender},
 };
 use troad_serde::{de::deserialize_from_slice, ser::serialize_with_size, var_int::VarInt};
-use uuid::Uuid;
 
 use crate::{
     event::{handle_event, Aes128Cfb8Dec, Aes128Cfb8Enc, Encryption, EventContext, State},
