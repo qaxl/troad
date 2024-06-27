@@ -1,0 +1,10 @@
+[package]
+name = "troad_serde"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+cast = { git = "https://github.com/qaxl/cast.rs" }
+serde = { version = "1.0.203", features = ["derive"] }
+serde_bytes = "0.11.15"
+serde_json = "1.0.118"

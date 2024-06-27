@@ -1,11 +1,10 @@
 use serde::{Deserialize, Serialize};
-
-use super::serde::VarInt;
+use troad_serde::var_int::VarInt;
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy)]
 pub struct Header {
-    pub len: VarInt<i32>,
-    pub id: VarInt<i32>,
+    pub len: VarInt,
+    pub id: VarInt,
 }
 
 #[deprecated = "serialize with serialize_with_size instead"]
@@ -18,10 +17,10 @@ pub struct Packet<T> {
 // LOGIN
 #[derive(Deserialize, Debug)]
 pub struct Handshake {
-    pub version: VarInt<i32>,
+    pub version: VarInt,
     pub address: String,
     pub port: u16,
-    pub next_state: VarInt<i32>, // TODO: enum...
+    pub next_state: VarInt, // TODO: enum...
 }
 
 // STATUS RESPONSE

@@ -20,14 +20,12 @@ use tokio::{
     net::{TcpListener, TcpStream},
     sync::mpsc::{self, Receiver, Sender},
 };
+use troad_serde::{de::deserialize_from_slice, ser::serialize_with_size, var_int::VarInt};
 use uuid::Uuid;
 
 use crate::{
     event::{handle_event, Aes128Cfb8Dec, Aes128Cfb8Enc, Encryption, EventContext, State},
-    protocol::{
-        packets::{Header, PluginMessage},
-        serde::{deserialize_from_slice, serialize_to_vec, serialize_with_size, v32, VarInt},
-    },
+    protocol::packets::Header,
 };
 
 pub type PeersMap = Arc<DashMap<SocketAddr, Sender<Arc<[u8]>>>>;
@@ -51,32 +49,6 @@ impl Server {
 
     pub async fn run(self) -> ! {
         let peers = Arc::new(DashMap::new());
-
-        let xd = PluginMessage::<Vec<u8>> {
-            channel: String::from("MC|Brand"),
-            data: "troad".to_owned().into_bytes(),
-        };
-
-        println!("{:02x?}", serialize_to_vec(&xd).unwrap());
-        println!("{:02x?}", bincode::serialize(&xd).unwrap());
-        println!("{}", Uuid::new_v4().to_string());
-
-        let mut data = [
-            0x56, 0xbe, 0x20, 0xbb, 0xa9, 0xb7, 0x14, 0xfa, 0x7b, 0x9d, 0x3f, 0x36, 0x19, 0x08,
-            0xdd, 0x49, 0xfa, 0x0d, 0xe9, 0xeb, 0xec, 0xe5, 0x8e, 0xed, 0x71, 0x2d, 0xb8, 0x92,
-            0x6d, 0xff, 0x47, 0x7e, 0x39, 0xae, 0x8a, 0xae, 0xa6, 0x13, 0xc4, 0x61, 0x44, 0x8f,
-            0x8a, 0xbc, 0xc0, 0x7f,
-        ];
-        let secret = [
-            0x65, 0xcf, 0xf8, 0xb0, 0x0a, 0x5a, 0x15, 0x08, 0x27, 0x3a, 0x25, 0x71, 0xa2, 0xa6,
-            0x94, 0x1d,
-        ];
-
-        Aes128Cfb8Dec::new_from_slices(&secret, &secret)
-            .unwrap()
-            .decrypt(&mut data);
-
-        println!("{:02x?}", data);
 
         let world = Arc::new(RwLock::new(World::new()));
 
@@ -288,15 +260,12 @@ impl TcpProtocolExt for TcpStream {
     async fn send<T: Serialize>(&mut self, id: i32, p: &T) -> io::Result<()> {
         #[derive(Serialize)]
         pub struct Data<'a, T> {
-            id: v32,
+            id: VarInt,
             p: &'a T,
         }
 
-        self.write_all(&serialize_with_size(&Data {
-            id: VarInt::<i32>(id),
-            p,
-        })?)
-        .await
+        self.write_all(&serialize_with_size(&Data { id: VarInt(id), p })?)
+            .await
     }
 
     async fn send_enc<T: Serialize>(
@@ -307,14 +276,11 @@ impl TcpProtocolExt for TcpStream {
     ) -> io::Result<()> {
         #[derive(Serialize)]
         pub struct Data<'a, T> {
-            id: v32,
+            id: VarInt,
             p: &'a T,
         }
 
-        let mut p = serialize_with_size(&Data {
-            id: VarInt::<i32>(id),
-            p,
-        })?;
+        let mut p = serialize_with_size(&Data { id: VarInt(id), p })?;
         {
             let (chunks, leftovers) = InOutBuf::from(&mut p[..]).into_chunks();
             if !leftovers.is_empty() {

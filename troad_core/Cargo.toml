@@ -1,0 +1,22 @@
+[package]
+name = "troad_core"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+aes = "0.8.4"
+bevy_ecs = "0.13.2"
+cfb8 = "0.8.1"
+cipher = "0.4.4"
+dashmap = "6.0.0"
+num = "0.4.3"
+num-traits = "0.2.19"
+rand = "0.8.5"
+reqwest = "0.12.5"
+rsa = "0.9.6"
+serde = { version = "1.0.203", features = ["derive"] }
+serde_json = "1.0.117"
+sha1 = "0.10.6"
+tokio = { version = "1.38.0", features = ["full"] }
+troad_serde = { version = "0.1.0", path = "../troad_serde" }
+uuid = { version = "1.8.0", features = ["serde", "v4"] }
