@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use troad_serde::{de::from_slice, ser::to_vec};
+use troad_serde::{from_slice, to_vec};
 
 fn main() {
     #[derive(Debug, Serialize, Deserialize)]

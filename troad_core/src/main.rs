@@ -1,4 +1,4 @@
-use server::Server;
+// use server::Server;
 
 mod event;
 mod protocol;
@@ -6,5 +6,5 @@ mod server;
 
 #[tokio::main]
 async fn main() {
-    Server::new().await.run().await;
+    // Server::new().await.run().await;
 }

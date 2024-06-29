@@ -1,35 +1,39 @@
-use std::{marker::PhantomData, ops::Deref};
+use std::marker::PhantomData;
 
 use serde::{
     de::{self, Visitor},
-    ser, Deserialize, Deserializer, Serialize, Serializer,
+    ser, Deserializer, Serializer,
 };
 
-#[macro_export]
-macro_rules! var_int_ser_impl {
-    ($serializer:ident, $input:expr) => {
-        {
-            use cast::From as _0;
-            use serde::ser::SerializeSeq;
 
-            let mut value: u64 =
-            u64::cast($input).map_err(|_| ser::Error::custom("value isn't convertible to i64"))?;
-            // More efficient would be to use `serialize_bytes`, but our custom serializer would result up in a cyclic dependency.
-            let mut seq = $serializer.serialize_seq(None)?;
-
-            loop {
-                if (value & !0x7F) == 0 {
-                    seq.serialize_element(&(value as u8))?;
-                    break;
+pub mod macros {
+    macro_rules! var_int_ser_impl {
+        ($serializer:ident, $input:expr) => {
+            {
+                use cast::From as _0;
+                use serde::ser::SerializeSeq;
+                
+                let mut value: u64 =
+                u64::cast($input).map_err(|_| ser::Error::custom("value isn't convertible to i64"))?;
+                // More efficient would be to use `serialize_bytes`, but our custom serializer would result up in a cyclic dependency.
+                let mut seq = $serializer.serialize_seq(None)?;
+                
+                loop {
+                    if (value & !0x7F) == 0 {
+                        seq.serialize_element(&(value as u8))?;
+                        break;
+                    }
+                    
+                    seq.serialize_element(&((value & 0x7F | 0x80) as u8))?;
+                    value >>= 7;
                 }
-
-                seq.serialize_element(&((value & 0x7F | 0x80) as u8))?;
-                value >>= 7;
+                
+                seq.end()
             }
+        };
+    }
 
-            seq.end()
-        }
-    };
+    pub(crate) use var_int_ser_impl;
 }
 
 // New recommended way
@@ -39,7 +43,7 @@ where
     T: Copy,
     u64: cast::From<T, Output = Result<u64, cast::Error>>,
 {
-    var_int_ser_impl!(serializer, *input)
+    macros::var_int_ser_impl!(serializer, *input)
 }
 
 pub fn deserialize<'de, D, T>(deserializer: D) -> Result<T, D::Error>
@@ -50,7 +54,7 @@ where
     deserializer.deserialize_seq(VarIntVisitor::<T>(PhantomData))
 }
 
-pub(super) struct VarIntVisitor<T>(pub(super) PhantomData<T>);
+pub(crate) struct VarIntVisitor<T>(pub(super) PhantomData<T>);
 
 impl<'de, T: cast::From<u64, Output = Result<T, cast::Error>>> Visitor<'de> for VarIntVisitor<T> {
     type Value = T;
@@ -88,7 +92,6 @@ impl<'de, T: cast::From<u64, Output = Result<T, cast::Error>>> Visitor<'de> for 
     }
 }
 
-// Only the new way is tested
 #[cfg(test)]
 mod tests {
     use serde::{Deserialize, Serialize};

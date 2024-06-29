@@ -1,13 +1,9 @@
-use std::any::type_name;
-
 use serde::{
-    ser::{self, SerializeSeq},
+    ser,
     Serialize,
 };
 
-use crate::{var_int, var_int_ser_impl};
-
-use super::err::{Error, Result};
+use super::{err::{Error, Result}, var_int::macros::var_int_ser_impl};
 
 #[derive(Debug)]
 pub struct Serializer {
@@ -79,7 +75,8 @@ impl<'a> ser::Serializer for &'a mut Serializer {
     }
 
     fn serialize_u32(self, v: u32) -> Result<Self::Ok> {
-        todo!()
+        self.output.extend(v.to_be_bytes().iter());
+        Ok(())
     }
 
     fn serialize_u64(self, v: u64) -> Result<Self::Ok> {
@@ -98,7 +95,10 @@ impl<'a> ser::Serializer for &'a mut Serializer {
     }
 
     fn serialize_char(self, v: char) -> Result<Self::Ok> {
-        todo!()
+        let mut encoded = [0; 4];
+        let encoded = v.encode_utf8(&mut encoded);
+        self.output.extend(encoded.as_bytes());
+        Ok(())
     }
 
     fn serialize_str(self, v: &str) -> Result<Self::Ok> {
@@ -121,31 +121,32 @@ impl<'a> ser::Serializer for &'a mut Serializer {
     where
         T: ?Sized + ser::Serialize,
     {
-        todo!()
+        value.serialize(self)
     }
 
     fn serialize_unit(self) -> Result<Self::Ok> {
-        todo!()
+        Ok(())
     }
 
-    fn serialize_unit_struct(self, name: &'static str) -> Result<Self::Ok> {
-        todo!()
+    fn serialize_unit_struct(self, _: &'static str) -> Result<Self::Ok> {
+        Ok(())
     }
 
     fn serialize_unit_variant(
         self,
-        name: &'static str,
+        _: &'static str,
         variant_index: u32,
-        variant: &'static str,
+        _: &'static str,
     ) -> Result<Self::Ok> {
-        todo!()
+        var_int_ser_impl!(self, variant_index)?;
+        Ok(())
     }
 
-    fn serialize_newtype_struct<T>(self, name: &'static str, value: &T) -> Result<Self::Ok>
+    fn serialize_newtype_struct<T>(self, _: &'static str, value: &T) -> Result<Self::Ok>
     where
         T: ?Sized + ser::Serialize,
     {
-        todo!()
+        value.serialize(self)
     }
 
     fn serialize_newtype_variant<T>(
@@ -189,8 +190,8 @@ impl<'a> ser::Serializer for &'a mut Serializer {
         self.serialize_tuple(len)
     }
 
-    fn serialize_map(self, len: Option<usize>) -> Result<Self::SerializeMap> {
-        todo!()
+    fn serialize_map(self, _: Option<usize>) -> Result<Self::SerializeMap> {
+        unimplemented!("not supported by minecraft protocol")
     }
 
     fn serialize_struct(self, _: &'static str, len: usize) -> Result<Self::SerializeStruct> {
