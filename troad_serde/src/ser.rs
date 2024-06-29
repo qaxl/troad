@@ -1,4 +1,11 @@
-use serde::{ser, Serialize};
+use std::any::type_name;
+
+use serde::{
+    ser::{self, SerializeSeq},
+    Serialize,
+};
+
+use crate::{var_int, var_int_ser_impl};
 
 use super::err::{Error, Result};
 
@@ -95,20 +102,13 @@ impl<'a> ser::Serializer for &'a mut Serializer {
     }
 
     fn serialize_str(self, v: &str) -> Result<Self::Ok> {
-        // 3-bytes... minecraft client will crash otherwise
-        // FIXME: ^^^
-        #[derive(Serialize)]
-        struct LengthPrefixedString<'a> {
-            #[serde(with = "crate::var_int")]
-            len: usize,
-            v: &'a str,
-        }
-
-        LengthPrefixedString { len: v.len(), v }.serialize(self)?;
+        var_int_ser_impl!(self, v.len())?;
+        self.output.extend(v.as_bytes());
         Ok(())
     }
 
     fn serialize_bytes(self, v: &[u8]) -> Result<Self::Ok> {
+        var_int_ser_impl!(self, v.len())?;
         self.output.extend(v);
         Ok(())
     }
@@ -150,15 +150,16 @@ impl<'a> ser::Serializer for &'a mut Serializer {
 
     fn serialize_newtype_variant<T>(
         self,
-        name: &'static str,
+        _: &'static str,
         variant_index: u32,
-        variant: &'static str,
+        _: &'static str,
         value: &T,
     ) -> Result<Self::Ok>
     where
         T: ?Sized + ser::Serialize,
     {
-        todo!()
+        var_int_ser_impl!(self, variant_index)?;
+        value.serialize(self)
     }
 
     fn serialize_seq(self, _len: Option<usize>) -> Result<Self::SerializeSeq> {
@@ -171,20 +172,21 @@ impl<'a> ser::Serializer for &'a mut Serializer {
 
     fn serialize_tuple_struct(
         self,
-        name: &'static str,
+        _: &'static str,
         len: usize,
     ) -> Result<Self::SerializeTupleStruct> {
-        todo!()
+        self.serialize_tuple(len)
     }
 
     fn serialize_tuple_variant(
         self,
-        name: &'static str,
+        _: &'static str,
         variant_index: u32,
-        variant: &'static str,
+        _: &'static str,
         len: usize,
     ) -> Result<Self::SerializeTupleVariant> {
-        todo!()
+        var_int_ser_impl!(self, variant_index)?;
+        self.serialize_tuple(len)
     }
 
     fn serialize_map(self, len: Option<usize>) -> Result<Self::SerializeMap> {
@@ -197,12 +199,13 @@ impl<'a> ser::Serializer for &'a mut Serializer {
 
     fn serialize_struct_variant(
         self,
-        name: &'static str,
+        _: &'static str,
         variant_index: u32,
-        variant: &'static str,
+        _: &'static str,
         len: usize,
     ) -> Result<Self::SerializeStructVariant> {
-        todo!()
+        var_int_ser_impl!(self, variant_index)?;
+        self.serialize_tuple(len)
     }
 }
 
@@ -297,7 +300,7 @@ impl<'a> ser::SerializeStruct for &'a mut Serializer {
     type Ok = ();
     type Error = Error;
 
-    fn serialize_field<T>(&mut self, key: &'static str, value: &T) -> Result<()>
+    fn serialize_field<T>(&mut self, _: &'static str, value: &T) -> Result<()>
     where
         T: ?Sized + Serialize,
     {
@@ -313,7 +316,7 @@ impl<'a> ser::SerializeStructVariant for &'a mut Serializer {
     type Ok = ();
     type Error = Error;
 
-    fn serialize_field<T>(&mut self, key: &'static str, value: &T) -> Result<()>
+    fn serialize_field<T>(&mut self, _: &'static str, value: &T) -> Result<()>
     where
         T: ?Sized + Serialize,
     {
@@ -325,10 +328,13 @@ impl<'a> ser::SerializeStructVariant for &'a mut Serializer {
     }
 }
 
-pub fn serialize_with_size<T: Serialize>(data: &T) -> Result<Vec<u8>> {
+/// Serializes `data` into a `Vec<u8>`, 
+/// the returned `Vec<u8>` has the length prefixed in front as a variable-length integer.
+/// See `to_vec` if you don't want the data to be length-prefixed.
+pub fn to_vec_with_size<T: Serialize>(data: &T) -> Result<Vec<u8>> {
     #[derive(Serialize)]
     struct LengthPrefixedData {
-        #[serde(with = "crate::var_int::prefixed_bytes")]
+        #[serde(with = "serde_bytes")]
         data: Vec<u8>,
     }
 
@@ -345,7 +351,9 @@ pub fn serialize_with_size<T: Serialize>(data: &T) -> Result<Vec<u8>> {
     Ok(serializer.output)
 }
 
-pub fn serialize_to_vec<T: Serialize>(data: &T) -> Result<Vec<u8>> {
+/// Serializes `data` into a `Vec<u8>`.
+/// See `to_vec_with_size` if you want to have length-prefixed data.
+pub fn to_vec<T: Serialize>(data: &T) -> Result<Vec<u8>> {
     let mut serializer = Serializer::new();
     data.serialize(&mut serializer)?;
 

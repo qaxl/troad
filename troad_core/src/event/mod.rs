@@ -24,8 +24,8 @@ use serde::{Deserialize, Serialize};
 use sha1::{Digest, Sha1};
 use tokio::{io::AsyncWriteExt, net::TcpStream};
 use troad_serde::{
-    de::deserialize_from_slice,
-    ser::{serialize_to_vec, serialize_with_size},
+    de::from_slice,
+    ser::{to_vec, to_vec_with_size},
 };
 use uuid::Uuid;
 
@@ -197,7 +197,7 @@ pub async fn handle_event<'a>(context: EventContext<'a>) -> Result<(), io::Error
     match context.state {
         State::Handshaking => match *context.header.id {
             HANDSHAKE => {
-                let handshake = deserialize_from_slice::<Handshake>(context.buf)?.1;
+                let handshake = from_slice::<Handshake>(context.buf)?.1;
                 println!("{handshake:?}");
 
                 *context.state = (*handshake.next_state).into();
@@ -223,7 +223,7 @@ pub async fn handle_event<'a>(context: EventContext<'a>) -> Result<(), io::Error
             }
 
             PING_PONG => {
-                let ping = deserialize_from_slice::<Ping>(context.buf)?.1;
+                let ping = from_slice::<Ping>(context.buf)?.1;
                 context.stream.send(PING_PONG, &ping).await?;
             }
             _ => (),
@@ -232,7 +232,7 @@ pub async fn handle_event<'a>(context: EventContext<'a>) -> Result<(), io::Error
         State::Login => {
             match *context.header.id {
                 LOGIN_START => {
-                    let info = deserialize_from_slice::<LoginStart>(context.buf)?.1;
+                    let info = from_slice::<LoginStart>(context.buf)?.1;
                     let entity_id = {
                         let mut entity_world = context.world.write().unwrap();
                         let entity_world = entity_world.spawn(PlayerName {
@@ -685,24 +685,24 @@ pub async fn handle_event<'a>(context: EventContext<'a>) -> Result<(), io::Error
                 }
 
                 0x15 => {
-                    let settings = deserialize_from_slice::<ClientSettings>(context.buf)?;
+                    let settings = from_slice::<ClientSettings>(context.buf)?;
                     println!("{settings:?}");
                 }
 
                 0x17 => {
-                    let plugin_message = deserialize_from_slice::<PluginMessage<Vec<u8>>>(
+                    let plugin_message = from_slice::<PluginMessage<Vec<u8>>>(
                         &context.buf[..*context.header.len as usize - 1],
                     )?;
                     println!("{plugin_message:?}");
                 }
 
                 0x6 => {
-                    let pos_and_look = deserialize_from_slice::<PlayerPosLook>(context.buf)?;
+                    let pos_and_look = from_slice::<PlayerPosLook>(context.buf)?;
                     // println!("{pos_and_look:?}");
                 }
 
                 0x4 => {
-                    let pos = deserialize_from_slice::<PlayerPos>(context.buf)?;
+                    let pos = from_slice::<PlayerPos>(context.buf)?;
                     // println!("{pos:?}");
                 }
 

@@ -18,7 +18,7 @@ use tokio::{
     net::{TcpListener, TcpStream},
     sync::mpsc::{self, Receiver, Sender},
 };
-use troad_serde::{de::deserialize_from_slice, ser::serialize_with_size, var_int::VarInt};
+use troad_serde::{de::from_slice, ser::to_vec_with_size, var_int::VarInt};
 
 use crate::{
     event::{handle_event, Aes128Cfb8Dec, Aes128Cfb8Enc, Encryption, EventContext, State},
@@ -167,7 +167,7 @@ async fn handle_incoming_data(
         buf.len()
     );
     while read < buf.len() {
-        let (size, header) = deserialize_from_slice::<Header>(&buf[read..])?;
+        let (size, header) = from_slice::<Header>(&buf[read..])?;
 
         handle_event(EventContext {
             peers,
@@ -261,7 +261,7 @@ impl TcpProtocolExt for TcpStream {
             p: &'a T,
         }
 
-        self.write_all(&serialize_with_size(&Data { id: VarInt(id), p })?)
+        self.write_all(&to_vec_with_size(&Data { id: VarInt(id), p })?)
             .await
     }
 
@@ -277,7 +277,7 @@ impl TcpProtocolExt for TcpStream {
             p: &'a T,
         }
 
-        let mut p = serialize_with_size(&Data { id: VarInt(id), p })?;
+        let mut p = to_vec_with_size(&Data { id: VarInt(id), p })?;
         {
             let (chunks, leftovers) = InOutBuf::from(&mut p[..]).into_chunks();
             if !leftovers.is_empty() {

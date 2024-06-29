@@ -1,10 +1,36 @@
 use std::{marker::PhantomData, ops::Deref};
 
-use cast::From as _0;
 use serde::{
     de::{self, Visitor},
     ser, Deserialize, Deserializer, Serialize, Serializer,
 };
+
+#[macro_export]
+macro_rules! var_int_ser_impl {
+    ($serializer:ident, $input:expr) => {
+        {
+            use cast::From as _0;
+            use serde::ser::SerializeSeq;
+
+            let mut value: u64 =
+            u64::cast($input).map_err(|_| ser::Error::custom("value isn't convertible to i64"))?;
+            // More efficient would be to use `serialize_bytes`, but our custom serializer would result up in a cyclic dependency.
+            let mut seq = $serializer.serialize_seq(None)?;
+
+            loop {
+                if (value & !0x7F) == 0 {
+                    seq.serialize_element(&(value as u8))?;
+                    break;
+                }
+
+                seq.serialize_element(&((value & 0x7F | 0x80) as u8))?;
+                value >>= 7;
+            }
+
+            seq.end()
+        }
+    };
+}
 
 // New recommended way
 pub fn serialize<S, T>(input: &T, serializer: S) -> Result<S::Ok, S::Error>
@@ -13,25 +39,7 @@ where
     T: Copy,
     u64: cast::From<T, Output = Result<u64, cast::Error>>,
 {
-    let mut bytes = [0u8; 10];
-    let mut length = 0;
-
-    let mut value: u64 =
-        u64::cast(*input).map_err(|_| ser::Error::custom("value isn't convertible to i64"))?;
-
-    for b in &mut bytes {
-        length += 1;
-
-        if (value & !0x7F) == 0 {
-            *b = value as u8;
-            break;
-        }
-
-        *b = (value & 0x7F | 0x80) as u8;
-        value >>= 7;
-    }
-
-    serializer.serialize_bytes(&bytes[..length])
+    var_int_ser_impl!(serializer, *input)
 }
 
 pub fn deserialize<'de, D, T>(deserializer: D) -> Result<T, D::Error>
@@ -77,42 +85,6 @@ impl<'de, T: cast::From<u64, Output = Result<T, cast::Error>>> Visitor<'de> for 
                 return Err(de::Error::custom("var int is too long! (>64 bytes)"));
             }
         }
-    }
-}
-
-pub mod prefixed_bytes {
-    use std::borrow::Cow;
-
-    use serde::{de::Visitor, Deserialize, Deserializer, Serialize, Serializer};
-
-    #[derive(Serialize, Deserialize)]
-    struct LengthPrefixedVec<'a> {
-        // This is redundant field, but serde itself serialized Vec<u8> as just sequence of bytes.
-        #[serde(with = "crate::var_int")]
-        len: usize,
-        #[serde(borrow, with = "serde_bytes")]
-        vec: Cow<'a, [u8]>,
-    }
-
-    pub fn serialize<S>(input: &Vec<u8>, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        LengthPrefixedVec {
-            len: input.len(),
-            vec: Cow::Borrowed(input),
-        }
-        .serialize(serializer)
-    }
-
-    pub fn deserialize<'de, D>(deserializer: D) -> Result<Vec<u8>, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        LengthPrefixedVec::deserialize(deserializer).map(|x| match x.vec {
-            Cow::Owned(x) => x,
-            Cow::Borrowed(x) => x.to_owned(),
-        })
     }
 }
 
