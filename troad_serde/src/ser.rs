@@ -1,9 +1,9 @@
-use serde::{
-    ser,
-    Serialize,
-};
+use serde::{ser, Serialize};
 
-use super::{err::{Error, Result}, var_int::macros::var_int_ser_impl};
+use super::{
+    err::{Error, Result},
+    var_int::macros::var_int_ser_impl,
+};
 
 #[derive(Debug)]
 pub struct Serializer {
@@ -20,6 +20,12 @@ impl Serializer {
 
     pub fn output(self) -> Vec<u8> {
         self.output
+    }
+}
+
+impl Default for Serializer {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -329,7 +335,7 @@ impl<'a> ser::SerializeStructVariant for &'a mut Serializer {
     }
 }
 
-/// Serializes `data` into a `Vec<u8>`, 
+/// Serializes `data` into a `Vec<u8>`,
 /// the returned `Vec<u8>` has the length prefixed in front as a variable-length integer.
 /// See `to_vec` if you don't want the data to be length-prefixed.
 pub fn to_vec_with_size<T: Serialize>(data: &T) -> Result<Vec<u8>> {

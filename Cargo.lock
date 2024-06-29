@@ -1798,11 +1798,10 @@ dependencies = [
 name = "troad_auth"
 version = "0.1.0"
 dependencies = [
- "bnum",
  "reqwest",
  "serde",
  "serde_json",
- "sha1_smol",
+ "troad_crypto",
  "uuid",
 ]
 
@@ -1824,6 +1823,35 @@ dependencies = [
  "serde_json",
  "sha1",
  "tokio",
+ "troad_crypto",
+ "troad_ecs",
+ "troad_event",
+ "troad_protocol",
+ "troad_serde",
+ "uuid",
+]
+
+[[package]]
+name = "troad_crypto"
+version = "0.1.0"
+dependencies = [
+ "bnum",
+ "sha1_smol",
+]
+
+[[package]]
+name = "troad_ecs"
+version = "0.1.0"
+
+[[package]]
+name = "troad_event"
+version = "0.1.0"
+
+[[package]]
+name = "troad_protocol"
+version = "0.1.0"
+dependencies = [
+ "serde",
  "troad_serde",
  "uuid",
 ]

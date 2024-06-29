@@ -5,29 +5,28 @@ use serde::{
     ser, Deserializer, Serializer,
 };
 
-
 pub mod macros {
     macro_rules! var_int_ser_impl {
         ($serializer:ident, $input:expr) => {
             {
                 use cast::From as _0;
                 use serde::ser::SerializeSeq;
-                
+
                 let mut value: u64 =
                 u64::cast($input).map_err(|_| ser::Error::custom("value isn't convertible to i64"))?;
                 // More efficient would be to use `serialize_bytes`, but our custom serializer would result up in a cyclic dependency.
                 let mut seq = $serializer.serialize_seq(None)?;
-                
+
                 loop {
                     if (value & !0x7F) == 0 {
                         seq.serialize_element(&(value as u8))?;
                         break;
                     }
-                    
+
                     seq.serialize_element(&((value & 0x7F | 0x80) as u8))?;
                     value >>= 7;
                 }
-                
+
                 seq.end()
             }
         };

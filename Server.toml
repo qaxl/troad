@@ -1,0 +1,57 @@
+[network]
+host = "0.0.0.0"
+port = 25565
+# When to compress data, -1 to disable
+compression_threshold = 256
+online_mode = true
+enable_query = false
+enable_rcon = false
+max_players = 20
+motd = "A Troad Server"
+player_idle_timeout = 0
+snooper_enabled = true
+# The bigger the number, the intensiver it is to the CPU.
+view_distance = 10
+white_list = false
+
+[minecraft]
+# Supports 0-4 or "peaceful", "easy", "normal", "hard"
+difficulty = 1
+announce_player_achievements = true
+enable_command_blocks = false
+force_gamemode = false
+# Supports 0-2 or "survival", "adventure", "spectator"
+gamemode = 0
+op_permission_level = 4
+pvp = true
+
+[resource_pack]
+path = ""
+hash = ""
+
+[level]
+generate_structures = true
+hardcore = false
+level_name = "world"
+level_seed = -1
+level_type = "default_flat"
+max_build_height = 256
+max_tick_time = 60000
+# Different to vanilla default, which is about ~30 MiB, this is 1 GiB.
+max_level_size = 1074000000
+spawn_protection = 16
+
+[level.generator]
+# TODO: specify settings here
+
+[level.spawn]
+animals = true
+monsters = true
+npcs = true
+
+
+# UNSUPPORTED BUT PLANNED FEATURES
+# --------------------------------------------------------------------------------------
+[imports]
+# It is possible to import "server.properties" from an vanilla server
+# server_properties = "server.properties"

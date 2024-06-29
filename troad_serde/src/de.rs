@@ -70,7 +70,7 @@ impl<'a, 'de> de::Deserializer<'de> for &'a mut Deserializer<'de> {
     where
         V: Visitor<'de>,
     {
-       visitor.visit_i32(i32::from_be_bytes(self.data.try_take_n_exact(4)?))
+        visitor.visit_i32(i32::from_be_bytes(self.data.try_take_n_exact(4)?))
     }
 
     fn deserialize_i64<V>(self, visitor: V) -> Result<V::Value>
@@ -169,7 +169,7 @@ impl<'a, 'de> de::Deserializer<'de> for &'a mut Deserializer<'de> {
     where
         V: Visitor<'de>,
     {
-        // TODO: if ever needed, figure out HOW. 
+        // TODO: if ever needed, figure out HOW.
         unimplemented!()
     }
 
@@ -395,7 +395,7 @@ impl<'a> Slice<'a> {
     }
 }
 
-/// Deserializes data from slice. 
+/// Deserializes data from slice.
 /// The returning value is (read_size, deserialized_data).
 /// # NOTE:
 /// This function has this weird return value because the main library user (currently closed source, `troad`) may call `from_slice` multiple times.

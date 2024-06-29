@@ -1,14 +1,16 @@
-pub fn add(left: u64, right: u64) -> u64 {
-    left + right
-}
+use serde::{Deserialize, Serialize};
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+pub mod handshake;
+pub mod login;
+pub mod status;
 
-    #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
-    }
+pub mod chat;
+
+#[repr(i8)]
+#[derive(Serialize, Deserialize, Copy, Clone)]
+pub enum State {
+    Game = -1,
+    Initial = 0,
+    Status = 1,
+    Login = 2,
 }

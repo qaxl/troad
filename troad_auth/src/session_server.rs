@@ -9,16 +9,15 @@ pub enum PlayerAuthenticationStatus {
 }
 
 #[derive(Deserialize)]
-pub struct AuthenticationResponse {
+pub struct PlayerInformation {
     id: Uuid,
     name: String,
 
-    // Player's skin blob.
-    properties: Vec<AuthenticationProperties>,
+    properties: Vec<PlayerProperties>,
 }
 
 #[derive(Deserialize)]
-pub struct AuthenticationProperties {
+pub struct PlayerProperties {
     name: String,
     value: String,
     signature: String,
@@ -28,7 +27,7 @@ pub async fn authenticate_player(
     username: &str,
     server_id: &str,
     ip: Option<&str>,
-) -> Result<AuthenticationResponse, Error> {
+) -> Result<PlayerInformation, Error> {
     let request = reqwest::get(format!(
         "https://sessionserver.mojang.com/session/minecraft/hasJoined?username={}&serverId={}{}",
         username,

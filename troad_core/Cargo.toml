@@ -18,5 +18,9 @@ serde = { version = "1.0.203", features = ["derive"] }
 serde_json = "1.0.117"
 sha1 = "0.10.6"
 tokio = { version = "1.38.0", features = ["full"] }
+troad_crypto = { version = "0.1.0", path = "../troad_crypto" }
+troad_ecs = { version = "0.1.0", path = "../troad_ecs" }
+troad_event = { version = "0.1.0", path = "../troad_event" }
+troad_protocol = { version = "0.1.0", path = "../troad_protocol" }
 troad_serde = { version = "0.1.0", path = "../troad_serde" }
 uuid = { version = "1.8.0", features = ["serde", "v4"] }
