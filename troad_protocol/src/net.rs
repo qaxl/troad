@@ -64,7 +64,7 @@ impl Connection {
         } else {
             &mut to_vec_with_size(p)?[..]
         };
-        
+
         println!("A {p:02x?}");
         self.conn.send(p).await
     }
@@ -74,6 +74,10 @@ impl Connection {
         packet_size: Option<(usize, PacketSize)>,
     ) -> Result<(usize, usize, PacketSize), io::Error> {
         let mut size_ = self.conn.recv(&mut self.buf[..]).await?;
+        if size_ == 0 {
+            return Err(io::Error::other("socket disconnected"));
+        }
+
         let (read, packet_size) = if let Some(p) = packet_size {
             p
         } else {
@@ -101,15 +105,35 @@ impl Connection {
     }
 
     pub async fn recv<P: for<'a> Deserialize<'a>>(&mut self) -> Result<P, io::Error> {
-        if self.excess_buf.len() > 0 {
+        let (size_, read, packet_size) = if self.excess_buf.len() > 0 {
             match from_slice::<PacketSize>(&self.buf[self.excess_buf.clone()]) {
                 Ok((read, packet_size)) => {
+                    println!(
+                        "excess buf?? {:?} {}, {:02x?} {:02x?}",
+                        self.excess_buf,
+                        packet_size.0,
+                        &self.buf[self.excess_buf.start + read..self.excess_buf.end],
+                        &self.buf[..]
+                    );
                     self.excess_buf = (self.excess_buf.start + read)..self.excess_buf.end;
 
+                    let buf = self.buf.clone();
+                    self.buf = vec![0; 1024];
                     if packet_size.0 > self.excess_buf.len() {
-                        self.recv_more(Some((read, packet_size))).await?;
+                        let (size_, read, packet_size) =
+                            self.recv_more(Some((read, packet_size))).await?;
+
+                        // FIXME: holy fuck this is inefficient
+                        self.buf = [buf, self.buf.clone()].concat();
+                        let len = self.excess_buf.len();
+                        let read_excs = self.excess_buf.start;
+                        self.excess_buf = 0..0;
+                        Ok((len + size_, read + read_excs, packet_size))
                     } else {
-                        return Ok(from_slice::<P>(&self.buf[self.excess_buf.clone()])?.1);
+                        let len = self.excess_buf.len();
+                        self.excess_buf = 0..0;
+                        // return Ok(from_slice::<P>(&self.buf[self.excess_buf.clone()])?.1);
+                        Ok((len, read, packet_size))
                     }
                 }
                 Err(e) => {
@@ -117,14 +141,19 @@ impl Connection {
                     return Err(e.into());
                 }
             }
-        }
+        } else {
+            self.recv_more(None).await
+        }?;
 
-        let (size_, read, packet_size) = self.recv_more(None).await?;
         println!("{:02x?}", &self.buf[..size_]);
 
         if let Some(compression_threshold) = self.compression_threshold {
             let (read_c, uncompressed_len) = from_slice::<PacketSize>(&self.buf[read..])?;
-            self.excess_buf = (read + read_c)..size_;
+            if (read_c + read + packet_size.0) < size_ {
+                self.excess_buf = (read + read_c + packet_size.0)..size_;
+            }
+
+            println!("excess buf: {:?}", self.excess_buf);
 
             println!(
                 "{} {} {} {} {}",
@@ -143,7 +172,10 @@ impl Connection {
             }
         } else {
             let (read_p, packet) = from_slice(&self.buf[read..packet_size.0 + read])?;
-            self.excess_buf = (read + read_p)..size_;
+            if (read_p + packet_size.0) < size_ {
+                self.excess_buf = (read + read_p)..size_;
+            }
+            println!("excess buf: {:?}", self.excess_buf);
 
             Ok(packet)
         }

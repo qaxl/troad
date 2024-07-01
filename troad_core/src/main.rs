@@ -176,13 +176,25 @@ async fn main() {
                                             .await
                                             .unwrap();
                                         connection
+                                            .send(&game::ClientBound::JoinGame {
+                                                entity_id: rand::random::<i32>(),
+                                                game_mode: 1,
+                                                dimension: 0,
+                                                difficulty: 0,
+                                                max_players: 10,
+                                                level_type: String::from("flat"),
+                                                reduced_debug_info: false,
+                                            })
+                                            .await
+                                            .unwrap();
+                                        connection
                                             .send(&game::ClientBound::PlayerLookAndPosition {
                                                 x: 0.0,
                                                 y: 0.0,
                                                 z: 1.0,
                                                 yaw: 0.0,
                                                 pitch: 0.0,
-                                                on_ground: true,
+                                                flags: 0,
                                             })
                                             .await
                                             .unwrap();
@@ -214,8 +226,9 @@ async fn main() {
                         let p = connection.recv::<game::ServerBound>().await.unwrap();
 
                         match p {
-                            game::ServerBound::KeepAlive(l) => (),
-                            game::ServerBound::Unhandled => eprintln!("UNHANDLED PACKET!"),
+                            game::ServerBound::KeepAlive(_) => (),
+                            // game::ServerBound::Unhandled => eprintln!("UNHANDLED PACKET!"),
+                            _ => eprintln!("unhandled packet: {p:?}"),
                         }
                     }
                 }
