@@ -6,17 +6,17 @@ use crate::State;
 #[derive(Deserialize)]
 pub struct Handshake {
     #[serde(with = "var_int")]
-    protocol_version: u32,
+    pub protocol_version: u32,
 
-    server_address: String,
-    server_port: u16,
+    pub server_address: String,
+    pub server_port: u16,
 
     // #[serde(with = "var_int")]
     // This is realistically a var int, but it doesn't matter as it never exceeds 7F
-    next_state: State,
+    pub next_state: State,
 }
 
 #[derive(Deserialize)]
 pub struct LegacyServerListPing {
-    payload: u8,
+    pub payload: u8,
 }

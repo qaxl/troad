@@ -1,18 +1,21 @@
 // use server::Server;
 
+use serde::Deserialize;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::TcpListener,
 };
 use troad_protocol::{
     chat::{Chat, Color},
-    login,
+    handshake, login,
+    net::Connection,
+    status, State,
 };
-use troad_serde::to_vec_with_size;
+use troad_serde::{from_slice, to_vec_with_size, var_int};
 
-mod event;
-mod protocol;
-mod server;
+// mod event;
+// mod protocol;
+// mod server;
 
 #[tokio::main]
 async fn main() {
@@ -23,34 +26,31 @@ async fn main() {
         println!("{addr}");
 
         tokio::spawn(async move {
-            let s = Chat::new()
-                .text("Hello, world! ")
-                .text("I am inside you. ")
-                .color(Color::White)
-                .reset()
-                .text("ALALALALALAL")
-                .color(Color::Red)
-                .click_url("https://google.com")
-                .underlined()
-                .finish();
-            let p = to_vec_with_size(&login::ClientBound::Disconnect(s.clone())).unwrap();
-
-            println!("{s}");
-            println!("{p:02x?}");
-
-            let mut buf = [0; 1024];
-            stream.read(&mut buf).await.unwrap();
-
-            println!("{buf:02x?}");
-
-            stream.write_all(&p).await.unwrap();
-
+            let mut connection = Connection::from(stream);
+            let mut state = State::Handshaking;
             loop {
-                let mut buf = [0; 1024];
-                if stream.read(&mut buf).await.unwrap() == 0 {
-                    return;
+                match state {
+                    State::Handshaking => {
+                        let p = connection.recv::<handshake::ServerBound>().await.unwrap();
+                        match p {
+                            handshake::ServerBound::Handshake(handshake) => {
+                                eprintln!("{}", handshake.server_address);
+
+                                if state != State::Login && state != State::Status {
+                                    connection
+                                        .send(&login::ClientBound::Disconnect("kys".to_owned()))
+                                        .await
+                                        .unwrap();
+                                }
+
+                                state = handshake.next_state;
+                            }
+
+                            handshake::ServerBound::LegacyServerListPing => {}
+                        }
+                    }
+                    _ => (),
                 }
-                println!("{buf:02x?}");
             }
         });
     }

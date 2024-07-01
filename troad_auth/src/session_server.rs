@@ -10,17 +10,17 @@ pub enum PlayerAuthenticationStatus {
 
 #[derive(Deserialize)]
 pub struct PlayerInformation {
-    id: Uuid,
-    name: String,
+    pub id: Uuid,
+    pub name: String,
 
-    properties: Vec<PlayerProperties>,
+    pub properties: Vec<PlayerProperties>,
 }
 
 #[derive(Deserialize)]
 pub struct PlayerProperties {
-    name: String,
-    value: String,
-    signature: String,
+    pub name: String,
+    pub value: String,
+    pub signature: String,
 }
 
 pub async fn authenticate_player(

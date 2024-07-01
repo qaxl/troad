@@ -4,6 +4,9 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+flate2 = { version = "1.0.30", features = ["zlib-ng"], default-features = false }
 serde = { version = "1.0.203", features = ["derive"] }
+tokio = { version = "1.38.0", features = ["net"] }
+troad_crypto = { version = "0.1.0", path = "../troad_crypto" }
 troad_serde = { version = "0.1.0", path = "../troad_serde" }
 uuid = { version = "1.9.1", features = ["serde"] }

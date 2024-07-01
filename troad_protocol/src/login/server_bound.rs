@@ -3,13 +3,13 @@ use troad_serde::serde_bytes;
 
 #[derive(Deserialize)]
 pub struct LoginStart {
-    name: String,
+    pub name: String,
 }
 
 #[derive(Deserialize)]
 pub struct EncryptionResponse {
     #[serde(with = "serde_bytes")]
-    shared_secret: Vec<u8>,
+    pub shared_secret: Vec<u8>,
     #[serde(with = "serde_bytes")]
-    verify_token: Vec<u8>,
+    pub verify_token: Vec<u8>,
 }

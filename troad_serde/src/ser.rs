@@ -1,24 +1,24 @@
 use serde::{ser, Serialize};
+use tinyvec::TinyVec;
 
 use super::{
     err::{Error, Result},
     var_int::macros::var_int_ser_impl,
 };
 
-#[derive(Debug)]
 pub struct Serializer {
-    output: Vec<u8>,
+    output: TinyVec<[u8; 256]>,
 }
 
 impl Serializer {
     // yea i know, 10 bytes extra... don't be so dramatic bro
     pub fn new() -> Self {
         Self {
-            output: Vec::with_capacity(16),
+            output: TinyVec::new(),
         }
     }
 
-    pub fn output(self) -> Vec<u8> {
+    pub fn output(self) -> TinyVec<[u8; 256]> {
         self.output
     }
 }
@@ -56,66 +56,67 @@ impl<'a> ser::Serializer for &'a mut Serializer {
     }
 
     fn serialize_i16(self, v: i16) -> Result<Self::Ok> {
-        self.output.extend(v.to_be_bytes().iter());
+        self.output.extend(v.to_be_bytes().iter().map(|x| *x));
         Ok(())
     }
 
     fn serialize_i32(self, v: i32) -> Result<Self::Ok> {
-        self.output.extend(v.to_be_bytes().iter());
+        self.output.extend(v.to_be_bytes().iter().map(|x| *x));
         Ok(())
     }
 
     fn serialize_i64(self, v: i64) -> Result<Self::Ok> {
-        self.output.extend(v.to_be_bytes().iter());
+        self.output.extend(v.to_be_bytes().iter().map(|x| *x));
         Ok(())
     }
 
     fn serialize_u8(self, v: u8) -> Result<Self::Ok> {
-        self.output.extend(v.to_be_bytes().iter());
+        self.output.extend(v.to_be_bytes().iter().map(|x| *x));
         Ok(())
     }
 
     fn serialize_u16(self, v: u16) -> Result<Self::Ok> {
-        self.output.extend(v.to_be_bytes().iter());
+        self.output.extend(v.to_be_bytes().iter().map(|x| *x));
         Ok(())
     }
 
     fn serialize_u32(self, v: u32) -> Result<Self::Ok> {
-        self.output.extend(v.to_be_bytes().iter());
+        self.output.extend(v.to_be_bytes().iter().map(|x| *x));
         Ok(())
     }
 
     fn serialize_u64(self, v: u64) -> Result<Self::Ok> {
-        self.output.extend(v.to_be_bytes().iter());
+        self.output.extend(v.to_be_bytes().iter().map(|x| *x));
         Ok(())
     }
 
     fn serialize_f32(self, v: f32) -> Result<Self::Ok> {
-        self.output.extend(v.to_be_bytes().iter());
+        self.output.extend(v.to_be_bytes().iter().map(|x| *x));
         Ok(())
     }
 
     fn serialize_f64(self, v: f64) -> Result<Self::Ok> {
-        self.output.extend(v.to_be_bytes().iter());
+        self.output.extend(v.to_be_bytes().iter().map(|x| *x));
         Ok(())
     }
 
     fn serialize_char(self, v: char) -> Result<Self::Ok> {
         let mut encoded = [0; 4];
         let encoded = v.encode_utf8(&mut encoded);
-        self.output.extend(encoded.as_bytes());
+        self.output
+            .extend(encoded.as_bytes().into_iter().map(|x| *x));
         Ok(())
     }
 
     fn serialize_str(self, v: &str) -> Result<Self::Ok> {
         var_int_ser_impl!(self, v.len())?;
-        self.output.extend(v.as_bytes());
+        self.output.extend(v.as_bytes().into_iter().map(|x| *x));
         Ok(())
     }
 
     fn serialize_bytes(self, v: &[u8]) -> Result<Self::Ok> {
         var_int_ser_impl!(self, v.len())?;
-        self.output.extend(v);
+        self.output.extend(v.iter().map(|x| *x));
         Ok(())
     }
 
@@ -338,18 +339,18 @@ impl<'a> ser::SerializeStructVariant for &'a mut Serializer {
 /// Serializes `data` into a `Vec<u8>`,
 /// the returned `Vec<u8>` has the length prefixed in front as a variable-length integer.
 /// See `to_vec` if you don't want the data to be length-prefixed.
-pub fn to_vec_with_size<T: Serialize>(data: &T) -> Result<Vec<u8>> {
+pub fn to_vec_with_size<T: Serialize>(data: &T) -> Result<TinyVec<[u8; 256]>> {
     #[derive(Serialize)]
-    struct LengthPrefixedData {
+    struct LengthPrefixedData<'a> {
         #[serde(with = "serde_bytes")]
-        data: Vec<u8>,
+        data: &'a [u8],
     }
 
     let mut serializer = Serializer::new();
     data.serialize(&mut serializer)?;
 
     let data = LengthPrefixedData {
-        data: serializer.output,
+        data: &serializer.output,
     };
 
     let mut serializer = Serializer::new();
@@ -360,7 +361,7 @@ pub fn to_vec_with_size<T: Serialize>(data: &T) -> Result<Vec<u8>> {
 
 /// Serializes `data` into a `Vec<u8>`.
 /// See `to_vec_with_size` if you want to have length-prefixed data.
-pub fn to_vec<T: Serialize>(data: &T) -> Result<Vec<u8>> {
+pub fn to_vec<T: Serialize>(data: &T) -> Result<TinyVec<[u8; 256]>> {
     let mut serializer = Serializer::new();
     data.serialize(&mut serializer)?;
 

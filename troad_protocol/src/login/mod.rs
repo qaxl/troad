@@ -11,7 +11,7 @@ pub enum ServerBound {
 
 #[derive(Serialize)]
 pub enum ClientBound {
-    // TODO: Chat
+    // TODO: Somehow make it able to use Chat...
     Disconnect(String),
 
     EncryptionRequest(client_bound::EncryptionRequest),
