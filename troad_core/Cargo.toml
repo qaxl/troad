@@ -4,23 +4,12 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-aes = "0.8.4"
-bevy_ecs = "0.13.2"
-cfb8 = "0.8.1"
-cipher = "0.4.4"
 dashmap = "6.0.0"
-num = "0.4.3"
-num-traits = "0.2.19"
 rand = "0.8.5"
-reqwest = "0.12.5"
-rsa = "0.9.6"
-serde = { version = "1.0.203", features = ["derive"] }
-serde_json = "1.0.117"
-sha1 = "0.10.6"
-tokio = { version = "1.38.0", features = ["full"] }
+tokio = { version = "1.38.0", features = ["net", "rt-multi-thread", "macros"] }
+troad_auth = { version = "0.1.0", path = "../troad_auth" }
 troad_crypto = { version = "0.1.0", path = "../troad_crypto" }
 troad_ecs = { version = "0.1.0", path = "../troad_ecs" }
 troad_event = { version = "0.1.0", path = "../troad_event" }
 troad_protocol = { version = "0.1.0", path = "../troad_protocol" }
 troad_serde = { version = "0.1.0", path = "../troad_serde" }
-uuid = { version = "1.8.0", features = ["serde", "v4"] }

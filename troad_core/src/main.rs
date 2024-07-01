@@ -1,29 +1,69 @@
 // use server::Server;
 
-use serde::Deserialize;
-use tokio::{
-    io::{AsyncReadExt, AsyncWriteExt},
-    net::TcpListener,
+use std::{
+    process::Command,
+    sync::{Arc, Mutex},
+    time::{Duration, Instant},
+};
+
+use tokio::net::TcpListener;
+use troad_auth::session_server;
+use troad_crypto::{
+    conn,
+    rsa::{DecryptRsa, RsaKeyPool},
+    sha1::sha1_notchian_hexdigest_arr,
 };
 use troad_protocol::{
     chat::{Chat, Color},
-    handshake, login,
+    game, handshake,
+    login::{
+        self,
+        client_bound::{EncryptionRequest, LoginSuccess},
+    },
     net::Connection,
     status, State,
 };
-use troad_serde::{from_slice, to_vec_with_size, var_int};
-
-// mod event;
-// mod protocol;
-// mod server;
 
 #[tokio::main]
 async fn main() {
     let listener = TcpListener::bind("0.0.0.0:25565").await.unwrap();
+    let key_pool = Arc::new(Mutex::new(RsaKeyPool::new(1024)));
+
+    // Have some keys in the pool...
+    RsaKeyPool::replenish(key_pool.clone(), Some(16));
+
+    {
+        let key_pool = key_pool.clone();
+        std::thread::spawn(move || {
+            // Have some more...
+            for _ in 0..100 {
+                RsaKeyPool::replenish(key_pool.clone(), Some(16));
+            }
+
+            loop {
+                let fullness = {
+                    let key_pool = key_pool.lock().unwrap();
+                    key_pool.fullness()
+                };
+
+                if fullness < 0.5 {
+                    // dumb syntax, cuz it locks itself twice.
+                    RsaKeyPool::replenish(key_pool.clone(), None);
+                } else {
+                    std::thread::sleep(Duration::from_secs(60));
+                }
+            }
+        });
+    }
 
     loop {
-        let (mut stream, addr) = listener.accept().await.unwrap();
-        println!("{addr}");
+        let (stream, addr) = listener.accept().await.unwrap();
+        println!("connection made: {addr}");
+
+        let key_pool = key_pool.clone();
+        let mut key = None;
+        let mut player_name = String::new();
+        let verify_token = rand::random::<u128>().to_be_bytes().to_vec();
 
         tokio::spawn(async move {
             let mut connection = Connection::from(stream);
@@ -34,22 +74,150 @@ async fn main() {
                         let p = connection.recv::<handshake::ServerBound>().await.unwrap();
                         match p {
                             handshake::ServerBound::Handshake(handshake) => {
-                                eprintln!("{}", handshake.server_address);
-
-                                if state != State::Login && state != State::Status {
-                                    connection
-                                        .send(&login::ClientBound::Disconnect("kys".to_owned()))
-                                        .await
-                                        .unwrap();
+                                if handshake.next_state == State::Status
+                                    || handshake.next_state == State::Login
+                                {
+                                    state = handshake.next_state;
+                                } else {
+                                    return;
                                 }
-
-                                state = handshake.next_state;
                             }
 
-                            handshake::ServerBound::LegacyServerListPing => {}
+                            handshake::ServerBound::LegacyServerListPing => {
+                                return;
+                            }
                         }
                     }
-                    _ => (),
+
+                    State::Status => {
+                        let p = connection.recv::<status::ServerBound>().await.unwrap();
+                        match p {
+                            status::ServerBound::Request => {
+                                connection.send(&status::ClientBound::Response(
+                                    format!("{{\"version\":{{\"name\":\"Troad 1.8.x\",\"protocol\":47}},\"players\":{{\"online\":{},\"max\":{}}},\"description\":{}}}", 0, 0, 
+                                        Chat::new()
+                                        .text("Running on version ")
+                                        .text(&
+                                            String::from_utf8_lossy(
+                                                &Command::new("git")
+                                                .arg("rev-parse")
+                                                .arg("--short")
+                                                .arg("HEAD")
+                                                .output()
+                                                .unwrap()
+                                                .stdout
+                                            )
+                                            .lines()
+                                            .next()
+                                            .unwrap())
+                                        .bold()
+                                        .color(Color::Cyan)
+                                        .text("!\nLocal test server.")
+                                        .finish())
+                                    )
+                                ).await.unwrap();
+                            }
+
+                            status::ServerBound::Ping(payload) => {
+                                connection
+                                    .send(&status::ClientBound::Pong(payload))
+                                    .await
+                                    .unwrap();
+                                return;
+                            }
+                        }
+                    }
+
+                    State::Login => {
+                        let p = connection.recv::<login::ServerBound>().await.unwrap();
+                        match p {
+                            login::ServerBound::LoginStart(info) => {
+                                key = Some(key_pool.lock().unwrap().pop());
+                                let key = unsafe { key.clone().unwrap_unchecked() };
+                                player_name = info.name;
+
+                                connection.set_compression(Some(256)).await.unwrap();
+                                connection
+                                    .send(&login::ClientBound::EncryptionRequest(
+                                        EncryptionRequest {
+                                            server_id: String::default(),
+                                            public_key: key.2,
+                                            verify_token: verify_token.clone(),
+                                        },
+                                    ))
+                                    .await
+                                    .unwrap();
+                            }
+                            login::ServerBound::EncryptionResponse(res) => {
+                                let key = key.clone().unwrap();
+
+                                let vt = key.1.decrypt_ct(&res.verify_token);
+                                if vt != verify_token {
+                                    eprintln!("Verify token doesn't match ({vt:02x?} != {verify_token:02x?}");
+                                    return;
+                                }
+
+                                let ss = key.1.decrypt_ct(&res.shared_secret);
+                                connection.enable_encryption(&ss).unwrap();
+
+                                let auth = session_server::authenticate_player(
+                                    &player_name,
+                                    &sha1_notchian_hexdigest_arr(&[&ss, &key.2]),
+                                    None,
+                                )
+                                .await;
+                                match auth {
+                                    Ok(s) => {
+                                        connection
+                                            .send(&login::ClientBound::LoginSuccess(LoginSuccess {
+                                                uuid: s.id.to_string(),
+                                                username: s.name,
+                                            }))
+                                            .await
+                                            .unwrap();
+                                        connection
+                                            .send(&game::ClientBound::PlayerLookAndPosition {
+                                                x: 0.0,
+                                                y: 0.0,
+                                                z: 1.0,
+                                                yaw: 0.0,
+                                                pitch: 0.0,
+                                                on_ground: true,
+                                            })
+                                            .await
+                                            .unwrap();
+                                        state = State::Game;
+
+                                        println!("Successful authentication!");
+                                    }
+
+                                    Err(e) => {
+                                        match e {
+                                            session_server::Error::Unauthorized => {
+                                                eprintln!("Unauthorized player tried to connect from {addr}!");
+                                                return;
+                                            }
+                                            session_server::Error::ReqwestError(e) => {
+                                                eprintln!("Minecraft auth server errored out: {e}")
+                                            }
+                                            session_server::Error::WeirdResponse => {
+                                                eprintln!("Minecraft auth server is down?")
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    State::Game => {
+                        let p = connection.recv::<game::ServerBound>().await.unwrap();
+
+                        match p {
+                            game::ServerBound::KeepAlive(l) => (),
+                            game::ServerBound::Unhandled => eprintln!("UNHANDLED PACKET!"),
+                        }
+                    }
                 }
             }
         });

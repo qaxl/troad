@@ -28,6 +28,7 @@ impl Connection {
             encryption.encryptor.encrypt_blocks_inout_mut(blocks);
         }
 
+        println!("{buf:02x?}");
         self.conn.write_all(buf).await
     }
 

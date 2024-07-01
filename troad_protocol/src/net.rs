@@ -8,7 +8,9 @@ use flate2::{read::ZlibDecoder, write::ZlibEncoder, Compression};
 use serde::{Deserialize, Serialize};
 use tokio::net::TcpStream;
 use troad_crypto::conn;
-use troad_serde::{from_slice, serde_bytes, to_vec, to_vec_with_size, var_int};
+use troad_serde::{from_slice, to_vec, to_vec_with_size, var_int};
+
+use crate::login::{client_bound::SetCompression, ClientBound};
 
 pub struct Connection {
     conn: conn::Connection,
@@ -34,11 +36,15 @@ impl Connection {
             let p = to_vec(p)?;
             let len = p.len();
 
+            println!("{p:02x?} ({compression_threshold} {len})");
+
             let uncompressed_len;
             let p = if len > compression_threshold {
                 // Compress packet id + data
                 let mut e = ZlibEncoder::new(Vec::new(), Compression::default());
-                e.write_all(&p[..])?;
+                // FIXME: are ALL packet types 1 byte?
+                e.write_all(&p[0..1])?;
+                e.write_all(&p[1..])?;
 
                 uncompressed_len = len;
                 &e.finish()?[..]
@@ -46,6 +52,8 @@ impl Connection {
                 uncompressed_len = 0;
                 &p[..]
             };
+
+            println!("{uncompressed_len}");
 
             // Construct a compressed packet header
             // current len + compressed len + compressed data
@@ -56,7 +64,8 @@ impl Connection {
         } else {
             &mut to_vec_with_size(p)?[..]
         };
-
+        
+        println!("A {p:02x?}");
         self.conn.send(p).await
     }
 
@@ -111,15 +120,22 @@ impl Connection {
         }
 
         let (size_, read, packet_size) = self.recv_more(None).await?;
+        println!("{:02x?}", &self.buf[..size_]);
 
         if let Some(compression_threshold) = self.compression_threshold {
-            let (read_c, compressed_packet) = from_slice::<CompressedPacket>(&self.buf)?;
+            let (read_c, uncompressed_len) = from_slice::<PacketSize>(&self.buf[read..])?;
             self.excess_buf = (read + read_c)..size_;
 
+            println!(
+                "{} {} {} {} {}",
+                packet_size.0, read, size_, read_c, uncompressed_len.0
+            );
             if packet_size.0 > compression_threshold {
-                let mut d = ZlibDecoder::new(&compressed_packet.compressed_data[..]);
-                let mut v = vec![0; compressed_packet.uncompressed_len];
-                d.read_exact(&mut v[..])?;
+                let mut d =
+                    ZlibDecoder::new(&self.buf[(read + read_c)..(packet_size.0 + read + read_c)]);
+                let mut v = vec![0; uncompressed_len.0];
+                d.read_exact(&mut v[0..1])?;
+                d.read_exact(&mut v[1..])?;
 
                 Ok(from_slice(&v[..])?.1)
             } else {
@@ -131,6 +147,28 @@ impl Connection {
 
             Ok(packet)
         }
+    }
+
+    // TODO: custom error type
+    pub fn enable_encryption(&mut self, shared_secret: &[u8]) -> Result<(), io::Error> {
+        if let Err(_) = self.conn.enable_encryption(shared_secret) {
+            Err(io::Error::other("shared_secret is invalid length"))
+        } else {
+            Ok(())
+        }
+    }
+
+    // This function enables compression and sends information about it to the client.
+    // You don't manually need to send SetCompression (0x3, login) packet.
+    // TODO: should this send it? ^
+    pub async fn set_compression(&mut self, threshold: Option<usize>) -> Result<(), io::Error> {
+        if let Some(threshold) = threshold {
+            self.send(&ClientBound::SetCompression(SetCompression { threshold }))
+                .await?;
+        }
+        self.compression_threshold = threshold;
+
+        Ok(())
     }
 }
 

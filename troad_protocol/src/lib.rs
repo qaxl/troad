@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 
+pub mod game;
 pub mod handshake;
 pub mod login;
 pub mod status;

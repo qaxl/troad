@@ -2,12 +2,6 @@ use reqwest::StatusCode;
 use serde::Deserialize;
 use uuid::Uuid;
 
-pub enum PlayerAuthenticationStatus {
-    Authenticated(String),
-    Unauthenticated,
-    ServerError,
-}
-
 #[derive(Deserialize)]
 pub struct PlayerInformation {
     pub id: Uuid,
@@ -56,6 +50,7 @@ pub async fn authenticate_player(
     }
 }
 
+#[derive(Debug)]
 pub enum Error {
     ReqwestError(reqwest::Error),
     Unauthorized,
