@@ -128,12 +128,12 @@ impl Connection {
                         let len = self.excess_buf.len();
                         let read_excs = self.excess_buf.start;
                         self.excess_buf = 0..0;
-                        Ok((len + size_, read + read_excs, packet_size))
+                        Ok((len + size_ + read, read + read_excs, packet_size))
                     } else {
                         let len = self.excess_buf.len();
                         self.excess_buf = 0..0;
                         // return Ok(from_slice::<P>(&self.buf[self.excess_buf.clone()])?.1);
-                        Ok((len, read, packet_size))
+                        Ok((len + read, read + self.excess_buf.start, packet_size))
                     }
                 }
                 Err(e) => {
@@ -171,7 +171,7 @@ impl Connection {
                 Ok(from_slice(&self.buf[(read + read_c)..(packet_size.0 + read + read_c)])?.1)
             }
         } else {
-            let (read_p, packet) = from_slice(&self.buf[read..packet_size.0 + read])?;
+            let (read_p, packet) = from_slice(&self.buf[read..(packet_size.0 + read)])?;
             if (read_p + packet_size.0) < size_ {
                 self.excess_buf = (read + read_p)..size_;
             }
@@ -206,6 +206,7 @@ impl Connection {
 
 impl From<TcpStream> for Connection {
     fn from(value: TcpStream) -> Self {
+        value.set_nodelay(true).unwrap();
         Self {
             conn: conn::Connection::from(value),
             excess_buf: 0..0,

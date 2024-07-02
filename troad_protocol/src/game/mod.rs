@@ -13,7 +13,10 @@ pub enum ClientBound {
         level_type: String,
         reduced_debug_info: bool,
     },
-    C02,
+    ChatMessage {
+        json: String,
+        position: u8,
+    },
     C03,
     C04,
     C05,

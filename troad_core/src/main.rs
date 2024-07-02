@@ -3,13 +3,12 @@
 use std::{
     process::Command,
     sync::{Arc, Mutex},
-    time::{Duration, Instant},
+    time::Duration,
 };
 
 use tokio::net::TcpListener;
 use troad_auth::session_server;
 use troad_crypto::{
-    conn,
     rsa::{DecryptRsa, RsaKeyPool},
     sha1::sha1_notchian_hexdigest_arr,
 };
@@ -34,11 +33,19 @@ async fn main() {
 
     {
         let key_pool = key_pool.clone();
-        std::thread::spawn(move || {
-            // Have some more...
-            for _ in 0..100 {
-                RsaKeyPool::replenish(key_pool.clone(), Some(16));
-            }
+        tokio::task::spawn_blocking(move || {
+            // {
+            //     let key_pool = key_pool.clone();
+
+            //     for _ in 0..10 {
+            //         let key_pool = key_pool.clone();
+            //         tokio::task::spawn_blocking(move || {
+            //             for _ in 0..100 {
+            //                 RsaKeyPool::replenish(key_pool.clone(), Some(16));
+            //             }
+            //         });
+            //     }
+            // }
 
             loop {
                 let fullness = {
@@ -198,9 +205,24 @@ async fn main() {
                                             })
                                             .await
                                             .unwrap();
+
+                                        connection
+                                            .send(&game::ClientBound::ChatMessage {
+                                                json: Chat::new()
+                                                    .text("")
+                                                    .text(&player_name)
+                                                    .bold()
+                                                    .color(Color::Blue)
+                                                    .text(" joined!")
+                                                    .finish(),
+                                                position: 0,
+                                            })
+                                            .await
+                                            .unwrap();
+
                                         state = State::Game;
 
-                                        println!("Successful authentication!");
+                                        // println!("Successful authentication!");
                                     }
 
                                     Err(e) => {
@@ -210,10 +232,19 @@ async fn main() {
                                                 return;
                                             }
                                             session_server::Error::ReqwestError(e) => {
-                                                eprintln!("Minecraft auth server errored out: {e}")
+                                                eprintln!("Minecraft auth server errored out: {e}");
+                                                connection
+                                                    .send(&game::ClientBound::Disconnect(
+                                                        Chat::new()
+                                                            .text("Authentication failure!")
+                                                            .finish(),
+                                                    ))
+                                                    .await
+                                                    .unwrap();
                                             }
                                             session_server::Error::WeirdResponse => {
-                                                eprintln!("Minecraft auth server is down?")
+                                                eprintln!("Minecraft auth server is down?");
+                                                connection.send(&game::ClientBound::Disconnect(Chat::new().text("Authentication server is unavailable.").finish())).await.unwrap();
                                             }
                                         }
                                     }
