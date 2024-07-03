@@ -2,10 +2,10 @@ use serde::Deserialize;
 
 pub mod server_bound;
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
 pub enum ServerBound {
     Handshake(server_bound::Handshake),
 
-    #[serde(other)]
-    LegacyServerListPing,
+    // #[serde(other)]
+    // LegacyServerListPing,
 }

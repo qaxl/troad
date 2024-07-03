@@ -79,6 +79,8 @@ async fn main() {
                 match state {
                     State::Handshaking => {
                         let p = connection.recv::<handshake::ServerBound>().await.unwrap();
+                        println!("{p:?}");
+
                         match p {
                             handshake::ServerBound::Handshake(handshake) => {
                                 if handshake.next_state == State::Status
@@ -90,9 +92,9 @@ async fn main() {
                                 }
                             }
 
-                            handshake::ServerBound::LegacyServerListPing => {
-                                return;
-                            }
+                            // handshake::ServerBound::LegacyServerListPing => {
+                            //     return;
+                            // }
                         }
                     }
 
@@ -166,9 +168,7 @@ async fn main() {
                                     return;
                                 }
 
-                                println!("A");
                                 let ss = key.1.decrypt_ct(&res.shared_secret);
-                                println!("A");
                                 connection.enable_encryption(&ss).unwrap();
 
                                 let auth = session_server::authenticate_player(

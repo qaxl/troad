@@ -369,7 +369,7 @@ impl<'a> Slice<'a> {
     pub fn try_take_n(&mut self, n: usize) -> Result<&'a [u8]> {
         let remaining = self.size();
         if remaining < n {
-            Err(Error::Eof)
+            Err(Error::UnexpectedEof(remaining, n))
         } else {
             // SAFETY: the length of the slice is checked before trying to return it to the callee
             unsafe {
@@ -383,7 +383,7 @@ impl<'a> Slice<'a> {
     pub fn try_take_n_exact<const N: usize>(&mut self, n: usize) -> Result<[u8; N]> {
         let remaining = self.size();
         if remaining < n {
-            Err(Error::Eof)
+            Err(Error::UnexpectedEof(remaining, n))
         } else {
             // SAFETY: the length of the slice is checked before trying to return it to the callee
             unsafe {

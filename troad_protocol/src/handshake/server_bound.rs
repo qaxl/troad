@@ -3,7 +3,7 @@ use troad_serde::var_int;
 
 use crate::State;
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
 pub struct Handshake {
     #[serde(with = "var_int")]
     pub protocol_version: u32,

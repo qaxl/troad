@@ -75,87 +75,50 @@ impl Connection {
 
     pub async fn recv<P: for<'a> Deserialize<'a>>(&mut self) -> Result<P, io::Error> {
         let mut buf = TinyVec::<[u8; 128]>::from_array_len([0; 128], 128);
-
-        let (mut buf, recv, sz) = if self.discarded_data.len() > 0 {
-            // try see if there's already enough data
-            match from_slice::<PacketSize>(&self.discarded_data) {
-                Ok((read, size)) => {
-                    let data = self.discarded_data.clone();
-                    let mut total_recv = self.discarded_data.len();
-
-                    if (read + *size) > self.discarded_data.len() {
-                        // need more data
-                        self.discarded_data.resize(read + *size, 0);
-                        while total_recv != (read + *size) {
-                            total_recv += self.conn.recv(&mut self.discarded_data[total_recv..]).await?;
-                        }
-                    } else if (read + *size) < self.discarded_data.len() {
-                        // lol still too much data, but eh. we'll take it
-                        self.discarded_data = TinyVec::from(&data[read + *size..]);
-                    } else {
-                        self.discarded_data = TinyVec::new();
-                    }
-
-                    (self.discarded_data.clone(), total_recv, Some((read, size)))
-                },
-                Err(_) => /* most likely not enough data */ (buf, 0, None),
-            }
-        } else {
-            let recv = self.conn.recv(&mut buf[..]).await?;
-            if recv == 0 {
-                return Err(io::Error::other("peer disconnected gracefully"));
-            }
-
-            (buf, recv, None)
-        };
-
-        if let Some(threshold) = self.compression_threshold {
-            let (read, size) = from_slice::<[PacketSize; 2]>(&buf)?;
-
-            let compressed_size = *size[0];
-            let uncompressed_size = *size[1];
-
-            println!("Compressed packet {{ compressed_size = {compressed_size}, uncompressed_size = {uncompressed_size}, is_over_threshold = {}, is_compressed = {} }}", threshold < compressed_size, compressed_size != 0);
-            if compressed_size + read > recv {
-                println!("\tReceived too little data!");
-            } else if compressed_size + read < recv {
-                println!("\tReceived too much data!");
-            } else {
-                println!("\tReceived just enough data!");
-            }
+        if self.discarded_data.len() > 0 {
+            println!("B");
+            let mut buf = self.discarded_data.clone();
+            let read = self._recv(&mut buf).await?;
 
             Ok(from_slice(&buf[read..])?.1)
         } else {
-            let (read, size) = if let Some((read, size)) = sz {
-                (read, size)
-            } else {
-                let (read, size) = from_slice::<PacketSize>(&buf)?;
-                (read, size)
-            };
-            
-            let mut total_recv = recv;
+            // println!("A");
+            let recv = self.conn.recv(&mut buf).await?;
+            let mut buf = TinyVec::from(&buf[..recv]);
+            let read = self._recv(&mut buf).await?;
 
-            println!("Uncompressed packet {{ size = {} }}", *size);
-            if read + *size > recv {
-                println!("\tReceived too little data!");
-
-                // self.buf.resize(read + *size, 0);
-                // let mut buf = []
-                buf.resize(read + *size, 0);
-                while total_recv != read + *size {
-                    total_recv += self.conn.recv(&mut buf[total_recv..]).await?;
-                }
-            }
-
-            let p = from_slice(&buf[read..])?;
-            if read + *size < total_recv {
-                println!("\tDiscarding {} bytes!", total_recv - read - *size);
-
-                self.discarded_data = TinyVec::from(&buf[read + *size..]);
-            }
-
-            Ok(p.1)
+            // println!("{}", buf.len());
+            Ok(from_slice(&buf[read..])?.1)
         }
+    }
+
+    async fn _recv(&mut self, buf: &mut TinyVec<[u8; 128]>) -> Result<usize, io::Error> {
+        let (read, size) = from_slice::<PacketSize>(&buf)?;
+        let total = read + *size;
+
+        println!("Receiving data: {total} {}", buf.len());
+
+        if total > buf.len() {
+            let mut recv = buf.len();
+            buf.resize(total, 0);
+            
+            println!("{} {total}", buf.len());
+            while recv != total {
+                // println!("{recv} {total}");
+                recv += self.conn.recv(&mut buf[recv..]).await?;
+            }
+
+            self.discarded_data.clear();
+        } else if total < buf.len() { 
+            // This doesn't actually "override", because if there's already existing data, it has been passed to this function as `buf`
+            // and is therefore handled already.
+            self.discarded_data = TinyVec::from(&buf[total..]);
+        } else {
+            // Reset it otherwise.
+            self.discarded_data.clear();
+        }
+
+        Ok(read)
     }
 
     // TODO: custom error type

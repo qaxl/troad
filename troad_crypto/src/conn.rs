@@ -33,7 +33,11 @@ impl Connection {
 
     pub async fn recv(&mut self, buf: &mut [u8]) -> Result<usize, io::Error> {
         let read = self.conn.read(buf).await?;
-        
+
+        if read == 0 {
+            return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "Connection was closed while reading data..."));
+        }
+
         if let Some(encryption) = &mut self.encryption {
             let (blocks, tail) = InOutBuf::from(&mut *buf).into_chunks();
             assert!(tail.is_empty());
