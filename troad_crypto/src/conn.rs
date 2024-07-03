@@ -28,13 +28,12 @@ impl Connection {
             encryption.encryptor.encrypt_blocks_inout_mut(blocks);
         }
 
-        println!("{buf:02x?}");
         self.conn.write_all(buf).await
     }
 
     pub async fn recv(&mut self, buf: &mut [u8]) -> Result<usize, io::Error> {
         let read = self.conn.read(buf).await?;
-
+        
         if let Some(encryption) = &mut self.encryption {
             let (blocks, tail) = InOutBuf::from(&mut *buf).into_chunks();
             assert!(tail.is_empty());

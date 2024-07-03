@@ -10,3 +10,4 @@ pub use err::{Error, Result};
 pub use ser::{to_vec, to_vec_with_size};
 pub use serde::{Deserialize, Serialize};
 pub use serde_bytes;
+pub use tinyvec;

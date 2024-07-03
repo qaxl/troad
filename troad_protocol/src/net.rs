@@ -1,22 +1,21 @@
 use std::{
     borrow::Cow,
     io::{self, ErrorKind, Read, Write},
-    ops::Range,
+    ops::{Deref, Range},
 };
 
 use flate2::{read::ZlibDecoder, write::ZlibEncoder, Compression};
 use serde::{Deserialize, Serialize};
 use tokio::net::TcpStream;
 use troad_crypto::conn;
-use troad_serde::{from_slice, to_vec, to_vec_with_size, var_int};
+use troad_serde::{from_slice, tinyvec::{tiny_vec, TinyVec}, to_vec, to_vec_with_size, var_int};
 
 use crate::login::{client_bound::SetCompression, ClientBound};
 
 pub struct Connection {
     conn: conn::Connection,
 
-    buf: Vec<u8>,
-    excess_buf: Range<usize>,
+    discarded_data: TinyVec<[u8; 128]>,
     compression_threshold: Option<usize>,
 }
 
@@ -30,13 +29,19 @@ struct CompressedPacket<'a> {
 #[derive(Deserialize)]
 pub struct PacketSize(#[serde(with = "var_int")] usize);
 
+impl Deref for PacketSize {
+    type Target = usize;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
 impl Connection {
     pub async fn send<P: Serialize>(&mut self, p: &P) -> Result<(), io::Error> {
-        let p = if let Some(compression_threshold) = self.compression_threshold {
+        let mut p = if let Some(compression_threshold) = self.compression_threshold {
             let p = to_vec(p)?;
             let len = p.len();
-
-            println!("{p:02x?} ({compression_threshold} {len})");
 
             let uncompressed_len;
             let p = if len > compression_threshold {
@@ -57,127 +62,99 @@ impl Connection {
 
             // Construct a compressed packet header
             // current len + compressed len + compressed data
-            &mut to_vec_with_size(&CompressedPacket {
+            to_vec_with_size(&CompressedPacket {
                 uncompressed_len,
                 compressed_data: Cow::Borrowed(p),
             })?
         } else {
-            &mut to_vec_with_size(p)?[..]
+            to_vec_with_size(p)?
         };
 
-        println!("A {p:02x?}");
-        self.conn.send(p).await
-    }
-
-    async fn recv_more(
-        &mut self,
-        packet_size: Option<(usize, PacketSize)>,
-    ) -> Result<(usize, usize, PacketSize), io::Error> {
-        let mut size_ = self.conn.recv(&mut self.buf[..]).await?;
-        if size_ == 0 {
-            return Err(io::Error::other("socket disconnected"));
-        }
-
-        let (read, packet_size) = if let Some(p) = packet_size {
-            p
-        } else {
-            from_slice::<PacketSize>(&self.buf[..])?
-        };
-
-        if (size_ - read) < packet_size.0 {
-            self.buf.resize(packet_size.0 + read, 0);
-
-            let mut size = size_ - read;
-            while size < packet_size.0 {
-                let recv = self.conn.recv(&mut self.buf[(read + size)..]).await?;
-
-                if recv == 0 {
-                    return Err(io::Error::from(ErrorKind::UnexpectedEof));
-                }
-
-                size += recv;
-            }
-
-            size_ = size;
-        }
-
-        Ok((size_, read, packet_size))
+        self.conn.send(&mut p[..]).await
     }
 
     pub async fn recv<P: for<'a> Deserialize<'a>>(&mut self) -> Result<P, io::Error> {
-        let (size_, read, packet_size) = if self.excess_buf.len() > 0 {
-            match from_slice::<PacketSize>(&self.buf[self.excess_buf.clone()]) {
-                Ok((read, packet_size)) => {
-                    println!(
-                        "excess buf?? {:?} {}, {:02x?} {:02x?}",
-                        self.excess_buf,
-                        packet_size.0,
-                        &self.buf[self.excess_buf.start + read..self.excess_buf.end],
-                        &self.buf[..]
-                    );
-                    self.excess_buf = (self.excess_buf.start + read)..self.excess_buf.end;
+        let mut buf = TinyVec::<[u8; 128]>::from_array_len([0; 128], 128);
 
-                    let buf = self.buf.clone();
-                    self.buf = vec![0; 1024];
-                    if packet_size.0 > self.excess_buf.len() {
-                        let (size_, read, packet_size) =
-                            self.recv_more(Some((read, packet_size))).await?;
+        let (mut buf, recv, sz) = if self.discarded_data.len() > 0 {
+            // try see if there's already enough data
+            match from_slice::<PacketSize>(&self.discarded_data) {
+                Ok((read, size)) => {
+                    let data = self.discarded_data.clone();
+                    let mut total_recv = self.discarded_data.len();
 
-                        // FIXME: holy fuck this is inefficient
-                        self.buf = [buf, self.buf.clone()].concat();
-                        let len = self.excess_buf.len();
-                        let read_excs = self.excess_buf.start;
-                        self.excess_buf = 0..0;
-                        Ok((len + size_ + read, read + read_excs, packet_size))
+                    if (read + *size) > self.discarded_data.len() {
+                        // need more data
+                        self.discarded_data.resize(read + *size, 0);
+                        while total_recv != (read + *size) {
+                            total_recv += self.conn.recv(&mut self.discarded_data[total_recv..]).await?;
+                        }
+                    } else if (read + *size) < self.discarded_data.len() {
+                        // lol still too much data, but eh. we'll take it
+                        self.discarded_data = TinyVec::from(&data[read + *size..]);
                     } else {
-                        let len = self.excess_buf.len();
-                        self.excess_buf = 0..0;
-                        // return Ok(from_slice::<P>(&self.buf[self.excess_buf.clone()])?.1);
-                        Ok((len + read, read + self.excess_buf.start, packet_size))
+                        self.discarded_data = TinyVec::new();
                     }
-                }
-                Err(e) => {
-                    eprintln!("a peer tried sending invalid packet length? e: {e}");
-                    return Err(e.into());
-                }
+
+                    (self.discarded_data.clone(), total_recv, Some((read, size)))
+                },
+                Err(_) => /* most likely not enough data */ (buf, 0, None),
             }
         } else {
-            self.recv_more(None).await
-        }?;
-
-        println!("{:02x?}", &self.buf[..size_]);
-
-        if let Some(compression_threshold) = self.compression_threshold {
-            let (read_c, uncompressed_len) = from_slice::<PacketSize>(&self.buf[read..])?;
-            if (read_c + read + packet_size.0) < size_ {
-                self.excess_buf = (read + read_c + packet_size.0)..size_;
+            let recv = self.conn.recv(&mut buf[..]).await?;
+            if recv == 0 {
+                return Err(io::Error::other("peer disconnected gracefully"));
             }
 
-            println!("excess buf: {:?}", self.excess_buf);
+            (buf, recv, None)
+        };
 
-            println!(
-                "{} {} {} {} {}",
-                packet_size.0, read, size_, read_c, uncompressed_len.0
-            );
-            if packet_size.0 > compression_threshold {
-                let mut d =
-                    ZlibDecoder::new(&self.buf[(read + read_c)..(packet_size.0 + read + read_c)]);
-                let mut v = vec![0; uncompressed_len.0];
-                d.read_exact(&mut v[0..1])?;
-                d.read_exact(&mut v[1..])?;
+        if let Some(threshold) = self.compression_threshold {
+            let (read, size) = from_slice::<[PacketSize; 2]>(&buf)?;
 
-                Ok(from_slice(&v[..])?.1)
+            let compressed_size = *size[0];
+            let uncompressed_size = *size[1];
+
+            println!("Compressed packet {{ compressed_size = {compressed_size}, uncompressed_size = {uncompressed_size}, is_over_threshold = {}, is_compressed = {} }}", threshold < compressed_size, compressed_size != 0);
+            if compressed_size + read > recv {
+                println!("\tReceived too little data!");
+            } else if compressed_size + read < recv {
+                println!("\tReceived too much data!");
             } else {
-                Ok(from_slice(&self.buf[(read + read_c)..(packet_size.0 + read + read_c)])?.1)
+                println!("\tReceived just enough data!");
             }
-        } else {
-            let (read_p, packet) = from_slice(&self.buf[read..(packet_size.0 + read)])?;
-            if (read_p + packet_size.0) < size_ {
-                self.excess_buf = (read + read_p)..size_;
-            }
-            println!("excess buf: {:?}", self.excess_buf);
 
-            Ok(packet)
+            Ok(from_slice(&buf[read..])?.1)
+        } else {
+            let (read, size) = if let Some((read, size)) = sz {
+                (read, size)
+            } else {
+                let (read, size) = from_slice::<PacketSize>(&buf)?;
+                (read, size)
+            };
+            
+            let mut total_recv = recv;
+
+            println!("Uncompressed packet {{ size = {} }}", *size);
+            if read + *size > recv {
+                println!("\tReceived too little data!");
+
+                // self.buf.resize(read + *size, 0);
+                // let mut buf = []
+                buf.resize(read + *size, 0);
+                while total_recv != read + *size {
+                    total_recv += self.conn.recv(&mut buf[total_recv..]).await?;
+                }
+            }
+
+            let p = from_slice(&buf[read..])?;
+            if read + *size < total_recv {
+                println!("\tDiscarding {} bytes!", total_recv - read - *size);
+
+                self.discarded_data = TinyVec::from(&buf[read + *size..]);
+            }
+
+            Ok(p.1)
         }
     }
 
@@ -209,9 +186,8 @@ impl From<TcpStream> for Connection {
         value.set_nodelay(true).unwrap();
         Self {
             conn: conn::Connection::from(value),
-            excess_buf: 0..0,
-            buf: vec![0; 1024],
             compression_threshold: None,
+            discarded_data: TinyVec::new(),
         }
     }
 }

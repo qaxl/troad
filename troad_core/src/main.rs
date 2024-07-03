@@ -143,7 +143,7 @@ async fn main() {
                                 let key = unsafe { key.clone().unwrap_unchecked() };
                                 player_name = info.name;
 
-                                connection.set_compression(Some(256)).await.unwrap();
+                                // connection.set_compression(Some(256)).await.unwrap();
                                 connection
                                     .send(&login::ClientBound::EncryptionRequest(
                                         EncryptionRequest {
@@ -158,13 +158,17 @@ async fn main() {
                             login::ServerBound::EncryptionResponse(res) => {
                                 let key = key.clone().unwrap();
 
+                                println!("{:02x?}\n{:02x?}", res.shared_secret, res.verify_token);
+
                                 let vt = key.1.decrypt_ct(&res.verify_token);
                                 if vt != verify_token {
                                     eprintln!("Verify token doesn't match ({vt:02x?} != {verify_token:02x?}");
                                     return;
                                 }
 
+                                println!("A");
                                 let ss = key.1.decrypt_ct(&res.shared_secret);
+                                println!("A");
                                 connection.enable_encryption(&ss).unwrap();
 
                                 let auth = session_server::authenticate_player(
@@ -256,8 +260,17 @@ async fn main() {
                     State::Game => {
                         let p = connection.recv::<game::ServerBound>().await.unwrap();
 
-                        match p {
+                        match &p {
                             game::ServerBound::KeepAlive(_) => (),
+                            game::ServerBound::ClientSettings {
+                                locale,
+                                view_distance,
+                                chat_mode,
+                                chat_colors,
+                                displayed_skin_parts,
+                            } => {
+                                println!("{p:?}");
+                            }
                             // game::ServerBound::Unhandled => eprintln!("UNHANDLED PACKET!"),
                             _ => eprintln!("unhandled packet: {p:?}"),
                         }

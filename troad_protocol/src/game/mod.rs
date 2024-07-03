@@ -92,7 +92,6 @@ pub enum ClientBound {
 #[derive(Deserialize, Debug)]
 pub enum ServerBound {
     KeepAlive(#[serde(with = "var_int")] usize),
-    S00,
     S01,
     S02,
     S03,
@@ -113,7 +112,13 @@ pub enum ServerBound {
     S12,
     S13,
     S14,
-    S15,
+    ClientSettings {
+        locale: String,
+        view_distance: u8,
+        chat_mode: u8,
+        chat_colors: bool,
+        displayed_skin_parts: u8,
+    },
     S16,
     S17,
     S18,
