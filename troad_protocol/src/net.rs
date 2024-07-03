@@ -87,7 +87,7 @@ impl Connection {
             let mut buf = TinyVec::from(&buf[..recv]);
             let read = self._recv(&mut buf).await?;
 
-            // println!("{}", buf.len());
+            println!("{buf:02x?} {}", buf.len());
             Ok(from_slice(&buf[read..])?.1)
         }
     }
@@ -112,6 +112,7 @@ impl Connection {
         } else if total < buf.len() { 
             // This doesn't actually "override", because if there's already existing data, it has been passed to this function as `buf`
             // and is therefore handled already.
+            println!("Discarding {}", buf.len() - total);
             self.discarded_data = TinyVec::from(&buf[total..]);
         } else {
             // Reset it otherwise.
