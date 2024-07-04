@@ -8,7 +8,11 @@ use flate2::{read::ZlibDecoder, write::ZlibEncoder, Compression};
 use serde::{Deserialize, Serialize};
 use tokio::net::TcpStream;
 use troad_crypto::conn;
-use troad_serde::{from_slice, tinyvec::{tiny_vec, TinyVec}, to_vec, to_vec_with_size, var_int};
+use troad_serde::{
+    from_slice,
+    tinyvec::{tiny_vec, TinyVec},
+    to_vec, to_vec_with_size, var_int,
+};
 
 use crate::login::{client_bound::SetCompression, ClientBound};
 
@@ -101,15 +105,15 @@ impl Connection {
         if total > buf.len() {
             let mut recv = buf.len();
             buf.resize(total, 0);
-            
-            println!("{} {total}", buf.len());
+
+            println!("{} {total} {buf:02x?}", buf.len());
             while recv != total {
                 // println!("{recv} {total}");
                 recv += self.conn.recv(&mut buf[recv..]).await?;
             }
 
             self.discarded_data.clear();
-        } else if total < buf.len() { 
+        } else if total < buf.len() {
             // This doesn't actually "override", because if there's already existing data, it has been passed to this function as `buf`
             // and is therefore handled already.
             println!("Discarding {}", buf.len() - total);
@@ -119,6 +123,7 @@ impl Connection {
             self.discarded_data.clear();
         }
 
+        println!("{buf:02x?}");
         Ok(read)
     }
 

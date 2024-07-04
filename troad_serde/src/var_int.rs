@@ -84,7 +84,7 @@ impl<'de, T: cast::From<u64, Output = Result<T, cast::Error>>> Visitor<'de> for 
 
             position += 7;
 
-            if position >= (std::mem::size_of::<T>() * 7) as u64 {
+            if position >= (std::mem::size_of::<T>() * 8) as u64 {
                 return Err(de::Error::custom("var int is too long! (>64 bytes)"));
             }
         }
@@ -109,7 +109,7 @@ mod tests {
 
         let stct = StructWithVarInts {
             x: 42949,
-            y: isize::MAX,
+            y: i64::MAX as isize, // only i64 is really supported
             z: 455434355,
         };
 

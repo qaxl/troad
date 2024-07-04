@@ -30,7 +30,9 @@ impl Display for Error {
         match self {
             Error::Message(msg) => f.write_str(msg),
             Error::Eof => f.write_str("unexpected end of input"),
-            Error::UnexpectedEof(a, b) => f.write_fmt(format_args!("unexpected end of input ({a}, {b})")),
+            Error::UnexpectedEof(a, b) => {
+                f.write_fmt(format_args!("unexpected end of input ({a}, {b})"))
+            }
             Error::BadUtf8Input => f.write_str("bad utf-8 input"),
         }
     }

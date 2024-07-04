@@ -35,7 +35,10 @@ impl Connection {
         let read = self.conn.read(buf).await?;
 
         if read == 0 {
-            return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "Connection was closed while reading data..."));
+            return Err(io::Error::new(
+                io::ErrorKind::UnexpectedEof,
+                "Connection was closed while reading data...",
+            ));
         }
 
         if let Some(encryption) = &mut self.encryption {
@@ -43,6 +46,11 @@ impl Connection {
             assert!(tail.is_empty());
 
             encryption.decryptor.decrypt_blocks_inout_mut(blocks);
+            print!("DEC STATE: {}", encryption.state);
+            encryption.state = rand::random::<i8>();
+            println!(" {}", encryption.state);
+        } else {
+            println!("NO DEC ENABLED!");
         }
 
         Ok(read)
@@ -61,6 +69,7 @@ impl From<TcpStream> for Connection {
 struct Encryption {
     encryptor: Aes128Cfb8Encryptor,
     decryptor: Aes128Cfb8Decryptor,
+    state: i8,
 }
 
 impl Encryption {
@@ -68,6 +77,7 @@ impl Encryption {
         Ok(Self {
             encryptor: Aes128Cfb8Encryptor::new_from_slices(shared_secret, shared_secret)?,
             decryptor: Aes128Cfb8Decryptor::new_from_slices(shared_secret, shared_secret)?,
+            state: 0,
         })
     }
 }

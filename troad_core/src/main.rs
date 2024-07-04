@@ -90,11 +90,9 @@ async fn main() {
                                 } else {
                                     return;
                                 }
-                            }
-
-                            // handshake::ServerBound::LegacyServerListPing => {
-                            //     return;
-                            // }
+                            } // handshake::ServerBound::LegacyServerListPing => {
+                              //     return;
+                              // }
                         }
                     }
 
@@ -145,6 +143,7 @@ async fn main() {
                                 let key = unsafe { key.clone().unwrap_unchecked() };
                                 player_name = info.name;
 
+                                println!("VERIFY TOKEN\n---------------------\n{:02x?}\n--------------------", verify_token.clone());
                                 // connection.set_compression(Some(256)).await.unwrap();
                                 connection
                                     .send(&login::ClientBound::EncryptionRequest(
@@ -160,17 +159,17 @@ async fn main() {
                             login::ServerBound::EncryptionResponse(res) => {
                                 let key = key.clone().unwrap();
 
-                                println!("{:02x?}\n{:02x?}", res.shared_secret, res.verify_token);
-
+                                
                                 let vt = key.1.decrypt_ct(&res.verify_token);
                                 if vt != verify_token {
                                     eprintln!("Verify token doesn't match ({vt:02x?} != {verify_token:02x?}");
                                     return;
                                 }
-
+                                
                                 let ss = key.1.decrypt_ct(&res.shared_secret);
                                 connection.enable_encryption(&ss).unwrap();
-
+                                
+                                println!("KEYS\n------------------------\n{:02x?}\n{:02x?}\n--------------------",ss, vt);
                                 let auth = session_server::authenticate_player(
                                     &player_name,
                                     &sha1_notchian_hexdigest_arr(&[&ss, &key.2]),
