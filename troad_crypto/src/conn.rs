@@ -22,17 +22,14 @@ impl Connection {
 
     pub async fn send(&mut self, buf: &mut [u8]) -> Result<(), io::Error> {
         if let Some(encryption) = &mut self.encryption {
-            let (blocks, tail) = InOutBuf::from(&mut buf[..]).into_chunks();
-            assert!(tail.is_empty());
-
-            encryption.encryptor.encrypt_blocks_inout_mut(blocks);
+            encryption.encrypt(buf);
         }
 
-        self.conn.write_all(&mut buf[..]).await
+        self.conn.write_all(buf).await
     }
 
     pub async fn recv(&mut self, buf: &mut [u8]) -> Result<usize, io::Error> {
-        let read = self.conn.read(&mut buf[..]).await?;
+        let read = self.conn.read(buf).await?;
 
         if read == 0 {
             return Err(io::Error::new(
@@ -42,17 +39,7 @@ impl Connection {
         }
 
         if let Some(encryption) = &mut self.encryption {
-            let x = |buf: &mut [u8], chip: &mut Aes128Cfb8Decryptor| { 
-                let (blocks, tail) = InOutBuf::from(buf).into_chunks();
-                assert!(tail.is_empty());
-    
-                chip.decrypt_blocks_inout_mut(blocks);
-             };
-
-            x(&mut (*buf)[..], &mut encryption.decryptor);
-            
-        } else {
-            println!("NO DEC ENABLED!");
+            encryption.decrypt(buf);
         }
 
         Ok(read)
@@ -79,5 +66,17 @@ impl Encryption {
             encryptor: Aes128Cfb8Encryptor::new_from_slices(shared_secret, shared_secret)?,
             decryptor: Aes128Cfb8Decryptor::new_from_slices(shared_secret, shared_secret)?,
         })
+    }
+
+    pub fn encrypt(&mut self, buf: &mut [u8]) {
+        let (blocks, tail) = InOutBuf::from(buf).into_chunks();
+        assert!(tail.is_empty());
+        self.encryptor.encrypt_blocks_inout_mut(blocks);
+    }
+
+    pub fn decrypt(&mut self, buf: &mut [u8]) {
+        let (blocks, tail) = InOutBuf::from(buf).into_chunks();
+        assert!(tail.is_empty());
+        self.decryptor.decrypt_blocks_inout_mut(blocks);
     }
 }

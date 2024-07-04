@@ -79,19 +79,26 @@ impl Connection {
 
     pub async fn recv<P: for<'a> Deserialize<'a>>(&mut self) -> Result<P, io::Error> {
         let mut buf = TinyVec::<[u8; 128]>::from_array_len([0; 128], 128);
+        println!("BUF LEN {}", buf.len());
         if self.discarded_data.len() > 0 {
+            println!("{}", buf.len());
             println!("B");
             let mut buf = self.discarded_data.clone();
+            println!("{}", buf.len());
             let read = self._recv(&mut buf).await?;
 
             Ok(from_slice(&buf[read..])?.1)
         } else {
+            println!("{}", buf.len());
             // println!("A");
             let recv = self.conn.recv(&mut buf).await?;
+            println!("{}", buf.len());
             let mut buf = TinyVec::from(&buf[..recv]);
+            println!("{}", buf.len());
             let read = self._recv(&mut buf).await?;
+            println!("{}", buf.len());
 
-            println!("{buf:02x?} {}", buf.len());
+            // println!("{buf:02x?} {}", buf.len());
             Ok(from_slice(&buf[read..])?.1)
         }
     }

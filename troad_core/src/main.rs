@@ -130,6 +130,7 @@ async fn main() {
                             }
 
                             status::ServerBound::Ping(payload) => {
+                                tokio::time::sleep(Duration::from_millis(250)).await;
                                 connection
                                     .send(&status::ClientBound::Pong(payload))
                                     .await
@@ -226,6 +227,17 @@ async fn main() {
                                             })
                                             .await
                                             .unwrap();
+
+                                        for i in 0..100 {
+                                            connection.send(&game::ClientBound::ChatMessage {
+                                                json: Chat::new()
+                                                .text("You've been licked!")
+                                                .text(&i.to_string())
+                                                .bold()
+                                                .finish(),
+                                                position: 0,
+                                            }).await.unwrap();
+                                        }
 
                                         state = State::Game;
 
