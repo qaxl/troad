@@ -71,7 +71,6 @@ impl From<TcpStream> for Connection {
 struct Encryption {
     encryptor: Aes128Cfb8Encryptor,
     decryptor: Aes128Cfb8Decryptor,
-    state: i8,
 }
 
 impl Encryption {
@@ -79,7 +78,6 @@ impl Encryption {
         Ok(Self {
             encryptor: Aes128Cfb8Encryptor::new_from_slices(shared_secret, shared_secret)?,
             decryptor: Aes128Cfb8Decryptor::new_from_slices(shared_secret, shared_secret)?,
-            state: 0,
         })
     }
 }
