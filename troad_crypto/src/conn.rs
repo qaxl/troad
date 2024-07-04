@@ -22,17 +22,17 @@ impl Connection {
 
     pub async fn send(&mut self, buf: &mut [u8]) -> Result<(), io::Error> {
         if let Some(encryption) = &mut self.encryption {
-            let (blocks, tail) = InOutBuf::from(&mut *buf).into_chunks();
+            let (blocks, tail) = InOutBuf::from(&mut buf[..]).into_chunks();
             assert!(tail.is_empty());
 
             encryption.encryptor.encrypt_blocks_inout_mut(blocks);
         }
 
-        self.conn.write_all(buf).await
+        self.conn.write_all(&mut buf[..]).await
     }
 
     pub async fn recv(&mut self, buf: &mut [u8]) -> Result<usize, io::Error> {
-        let read = self.conn.read(buf).await?;
+        let read = self.conn.read(&mut buf[..]).await?;
 
         if read == 0 {
             return Err(io::Error::new(
@@ -42,13 +42,15 @@ impl Connection {
         }
 
         if let Some(encryption) = &mut self.encryption {
-            let (blocks, tail) = InOutBuf::from(&mut *buf).into_chunks();
-            assert!(tail.is_empty());
+            let x = |buf: &mut [u8], chip: &mut Aes128Cfb8Decryptor| { 
+                let (blocks, tail) = InOutBuf::from(buf).into_chunks();
+                assert!(tail.is_empty());
+    
+                chip.decrypt_blocks_inout_mut(blocks);
+             };
 
-            encryption.decryptor.decrypt_blocks_inout_mut(blocks);
-            print!("DEC STATE: {}", encryption.state);
-            encryption.state = rand::random::<i8>();
-            println!(" {}", encryption.state);
+            x(&mut (*buf)[..], &mut encryption.decryptor);
+            
         } else {
             println!("NO DEC ENABLED!");
         }

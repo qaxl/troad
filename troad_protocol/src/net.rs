@@ -108,7 +108,7 @@ impl Connection {
 
             println!("{} {total} {buf:02x?}", buf.len());
             while recv != total {
-                // println!("{recv} {total}");
+                println!("{recv} {total}");
                 recv += self.conn.recv(&mut buf[recv..]).await?;
             }
 

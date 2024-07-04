@@ -2,7 +2,7 @@
 
 use std::{
     process::Command,
-    sync::{Arc, Mutex},
+    sync::{atomic::{AtomicU32, Ordering}, Arc, Mutex},
     time::Duration,
 };
 
@@ -27,6 +27,7 @@ use troad_protocol::{
 async fn main() {
     let listener = TcpListener::bind("0.0.0.0:25565").await.unwrap();
     let key_pool = Arc::new(Mutex::new(RsaKeyPool::new(1024)));
+    let online = Arc::new(AtomicU32::new(0));
 
     // Have some keys in the pool...
     RsaKeyPool::replenish(key_pool.clone(), Some(16));
@@ -70,9 +71,12 @@ async fn main() {
         let key_pool = key_pool.clone();
         let mut key = None;
         let mut player_name = String::new();
-        let verify_token = rand::random::<u128>().to_be_bytes().to_vec();
+        let verify_token = rand::random::<u32>().to_be_bytes().to_vec();
+        let online = online.clone();
 
         tokio::spawn(async move {
+            online.fetch_add(1, Ordering::Release);
+
             let mut connection = Connection::from(stream);
             let mut state = State::Handshaking;
             loop {
@@ -101,7 +105,7 @@ async fn main() {
                         match p {
                             status::ServerBound::Request => {
                                 connection.send(&status::ClientBound::Response(
-                                    format!("{{\"version\":{{\"name\":\"Troad 1.8.x\",\"protocol\":47}},\"players\":{{\"online\":{},\"max\":{}}},\"description\":{}}}", 0, 0, 
+                                    format!("{{\"version\":{{\"name\":\"Troad 1.8.x\",\"protocol\":47}},\"players\":{{\"online\":{},\"max\":{}}},\"description\":{}}}", online.load(Ordering::Relaxed), 0, 
                                         Chat::new()
                                         .text("Running on version ")
                                         .text(&
@@ -140,7 +144,7 @@ async fn main() {
                         match p {
                             login::ServerBound::LoginStart(info) => {
                                 key = Some(key_pool.lock().unwrap().pop());
-                                let key = unsafe { key.clone().unwrap_unchecked() };
+                                let key = key.as_ref().unwrap();
                                 player_name = info.name;
 
                                 println!("VERIFY TOKEN\n---------------------\n{:02x?}\n--------------------", verify_token.clone());
@@ -149,7 +153,7 @@ async fn main() {
                                     .send(&login::ClientBound::EncryptionRequest(
                                         EncryptionRequest {
                                             server_id: String::default(),
-                                            public_key: key.2,
+                                            public_key: key.2.clone(),
                                             verify_token: verify_token.clone(),
                                         },
                                     ))

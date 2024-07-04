@@ -44,11 +44,10 @@ impl RsaKeyPool {
         for _ in 0..len {
             let key = RsaPrivateKey::new(&mut thread_rng, 1024).unwrap();
 
-            let mut kv = Vec::new();
-            SubjectPublicKeyInfo::from_key(key.to_public_key())
+            // let mut kv = Vec::new();
+            let kv = SubjectPublicKeyInfo::from_key(key.to_public_key())
                 .unwrap()
-                .encode_to_vec(&mut kv)
-                .unwrap();
+                .to_der().unwrap();
 
             vec.push_back((key.to_public_key(), key, kv));
         }
