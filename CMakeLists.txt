@@ -11,9 +11,13 @@ set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 
+if (WIN32)
+    add_compile_definitions(-D_WIN32_WINNT=0x0A00)
+endif()
+
 # Basically, forces the use of mold. (Very fast linker :))
-option(WITH_MOLD_AS_LINKER "Whether use mold as linker or not (use the system default instead). If enabled, will use mold." ON)
-option(WITH_NATIVE_OPTIMIZATIONS "Whether enable native optimizations. (Not recommended for distributed executables!)" ${${CMAKE_BUILD_TYPE} STREQUAL "RelWithDebInfo"})
+option(WITH_MOLD_AS_LINKER "Whether use mold as linker or not (use the system default instead). If enabled, will use mold." ${UNIX})
+option(WITH_NATIVE_OPTIMIZATIONS "Whether enable native optimizations. (Not recommended for distributed executables!)" OFF)
 option(WITH_DEBUG_ASAN "Whether to enable Address Sanitizer on Debug builds, if available." ON)
 
 if (WITH_NATIVE_OPTIMIZATIONS)
@@ -31,7 +35,7 @@ if (WITH_MOLD_AS_LINKER)
     message("- Linking with mold.")
 endif()
 
-if (WITH_DEBUG_ASAN)
+if (WITH_DEBUG_ASAN AND CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo")
     set (CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -fno-omit-frame-pointer -fsanitize=address")
     set (CMAKE_LINKER_FLAGS_DEBUG "${CMAKE_LINKER_FLAGS_DEBUG} -fno-omit-frame-pointer -fsanitize=address")
 

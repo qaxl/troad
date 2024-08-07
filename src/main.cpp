@@ -1,7 +1,2 @@
-#include <iostream>
-
-int main(int, char**)
-{
-    std::cout << "Hello, world!" << std::endl;
-    return 0;
-}
+#include "net/server.hpp"
+int main(int, char**) { troad::net::Server server(25565); }

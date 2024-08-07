@@ -40,3 +40,4 @@
 .intellij/
 .vs/
 .vscode/
+.cache/
