@@ -1,7 +1,7 @@
-# CMake Project Template for C and C++
+# Troad
 
-Title explains it all. I simply got bored off writing this boilerplate everytime I created a new C/++ project.
+A simple Minecraft 1.8.9 server. Implemented in C++ with [Standalone Asio](https://think-async.com/Asio/).
 
-# License
+## License
 
 You're free to do pretty much anything, thanks to [The Unlicense](LICENSE).
