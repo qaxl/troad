@@ -1,6 +1,7 @@
 add_executable(${PROJECT_NAME}
     main.cpp
     
-    net/server.cpp)
+    net/server.cpp
+    net/session.cpp)
 
 target_include_directories(${PROJECT_NAME} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${ASIO_INCLUDE_DIR})

@@ -1,63 +1,32 @@
 #pragma once
 
-#include <asio/ip/tcp.hpp>
-#include <iostream>
-#include <memory>
+#include <asio.hpp>
 
-#include "asio/buffer.hpp"
-#include "asio/error_code.hpp"
-
-int read_var_int(char** buf) {
-  int value = 0;
-  int shift = 0;
-
-  // TODO: handle buffer overflows
-  uint8_t byte = 0;
-  do {
-    byte = (*buf)[shift++];
-    value |= static_cast<int>(byte & 0x7F) << shift;
-    shift += 7;
-  } while ((byte & 0x80) != 0);
-
-  *buf += shift / 7;
-  return value;
-}
+#include "state.hpp"
+#include "util/binary.hpp"
 
 namespace troad::net {
-class Session : public std::enable_shared_from_this<Session> {
+class Server;
+
+class Session {
  public:
-  Session(asio::ip::tcp::socket&& socket) : socket_(std::move(socket)) {}
+  Session(asio::ip::tcp::socket&& socket, Server& server)
+      : socket_(std::move(socket)), server_(server) {
+    DoHandleConnection();
+  }
 
  private:
-  friend class Server;
+  void DoHandleConnection();
+  void DoHandleByteStream(ByteReader reader);
 
-  void do_data() {
-    // TODO: abstraction.
-    char* buf = initial_buf_;
-    int len = read_var_int(&buf);
-
-    std::cout << "Receiving a packet of length: " << len << std::endl;
-  }
-
-  void do_handle() {
-    // idk... this is necessary ig
-    auto self(shared_from_this());
-
-    socket_.async_read_some(
-        asio::buffer(initial_buf_),
-        [this, self](std::error_code ec, std::size_t length) {
-          asio::error_code e;
-          if (!ec) {
-            do_data();
-            do_handle();
-          } else {
-            std::cout << "Disconnecting socket because of error: " << ec << ", "
-                      << ec.message() << ", " << ec.value() << std::endl;
-          }
-        });
-  }
-
-  char initial_buf_[2048];
+  // Initial buffer for received data, if a client sends larger packet - it will
+  // be handled specifically.
+  uint8_t buf_[2048];
+  // The connected socket for this "session"
   asio::ip::tcp::socket socket_;
+  // Ref to server
+  Server& server_;
+  // Session's current status
+  State state_ = State::Connected;
 };
 }  // namespace troad::net
